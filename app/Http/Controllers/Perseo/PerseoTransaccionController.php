@@ -217,27 +217,36 @@ class PerseoTransaccionController extends Controller
             //con 2 decimales
             $totalFactura   = number_format($totalFactura, 2, '.', '');
             $detalles = [];
+            $productosFaltantes = [];
             foreach($detalle as $d){
                 $pro_codigo = $d->pro_codigo;
                 $id_perseo = $d->idPerseoProducto;
                 if($id_perseo == 0 || $id_perseo == null || $id_perseo == ""){
-                    return ["status" => "0", "message" => "El codigo $pro_codigo no se encuentra en perseo"];
+                    $productosFaltantes[] = $pro_codigo;
+                } else {
+                    $detalles[] = [
+                        "pedidosid"                 => 1,
+                        "centros_costosid"          => 1,
+                        "productosid"               => $d->idPerseoProducto,
+                        "medidasid"                 => 1,
+                        "almacenesid"               => 1,
+                        "cantidaddigitada"          => $d->det_ven_cantidad,//Cantidad del producto pedido
+                        "cantidad"                  => $d->det_ven_cantidad,//Resultado que se obtiene al multiplicar cantidaddigitada*cantidadfactor. Es la cantidad real que se va a utilizar en base a la medida con la que se está trabajando.
+                        "cantidadfactor"            => 1,
+                        "precio"                    => $d->det_ven_valor_u,
+                        "preciovisible"             => $d->det_ven_valor_u,
+                        "iva"                       => 0,
+                        "precioiva"                 => $d->det_ven_valor_u,
+                        "descuento"                 => $discount //consulta //Porcentaje de descuento que se va a aplicar a cada producto.
+                    ];
                 }
-                $detalles[] = [
-                    "pedidosid"                 => 1,
-                    "centros_costosid"          => 1,
-                    "productosid"               => $d->idPerseoProducto,
-                    "medidasid"                 => 1,
-                    "almacenesid"               => 1,
-                    "cantidaddigitada"          => $d->det_ven_cantidad,//Cantidad del producto pedido
-                    "cantidad"                  => $d->det_ven_cantidad,//Resultado que se obtiene al multiplicar cantidaddigitada*cantidadfactor. Es la cantidad real que se va a utilizar en base a la medida con la que se está trabajando.
-                    "cantidadfactor"            => 1,
-                    "precio"                    => $d->det_ven_valor_u,
-                    "preciovisible"             => $d->det_ven_valor_u,
-                    "iva"                       => 0,
-                    "precioiva"                 => $d->det_ven_valor_u,
-                    "descuento"                 => $discount //consulta //Porcentaje de descuento que se va a aplicar a cada producto.
-                ];
+            }
+            // Verificar si hay productos faltantes
+            if(!empty($productosFaltantes)){
+                $codigosFaltantes = implode(', ', $productosFaltantes);
+                DB::rollBack();
+                return ["status" => "0", "message" => "Los siguientes códigos no se encuentran en perseo: $codigosFaltantes Por favor contactese con el administrador del sistema."
+                , "codigosFaltantes" => $codigosFaltantes];
             }
             $formData = [
                 "registro" => [

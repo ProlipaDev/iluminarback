@@ -534,7 +534,8 @@ class SeriesController extends Controller
                     pf.pfn_pvp,
                     pf.pfn_estado,
                     ls.year,
-                    pr.codigos_combos
+                    pr.codigos_combos,
+                    pr.pro_codigo
                 FROM area ar
                 INNER JOIN asignatura a ON ar.idarea = a.area_idarea
                 INNER JOIN libro l ON a.idasignatura = l.asignatura_idasignatura
@@ -598,7 +599,8 @@ class SeriesController extends Controller
                 pf.pfn_estado,
                 ls.year,
                 l.descripcionlibro,
-                pr.codigos_combos
+                pr.codigos_combos,
+                pr.pro_codigo
             FROM area ar
             INNER JOIN asignatura a ON ar.idarea = a.area_idarea
             INNER JOIN libro l ON a.idasignatura = l.asignatura_idasignatura
@@ -613,8 +615,6 @@ class SeriesController extends Controller
             AND pf.pfn_estado = 1
             AND l.Estado_idEstado = 1
             ORDER BY ar.idarea, pf.pfn_orden ASC", [$value->id_serie, $periodo]);
-
-
 
             if ($areas) {
                 $datos[$key] = [
@@ -687,6 +687,7 @@ class SeriesController extends Controller
                 "year" => $area->year,
                 "codigos_combos" => $area->codigos_combos,
                 "pro_codigos_desglose" => $desglose_codigos_combos,
+                "pro_codigo" => $area->pro_codigo
             ];
         }
         // Ordenar los libros de cada área por 'year'

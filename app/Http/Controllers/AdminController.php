@@ -127,101 +127,432 @@ class AdminController extends Controller
     function filtrarPorEdad($persona) {
         return $persona["edad"] == 30;
     }
+    // public function pruebaApi(Request $request){
+    //     try {
+    //         set_time_limit(6000000);
+    //         ini_set('max_execution_time', 6000000);
+    //         $datos=[];
+    //         //anterior
+    //         $periodo                = $request->periodo_idUno;
+    //         //despues
+    //         $periodo2               = $request->periodo_idDos;
+    //         $codigosContrato        = $request->codigoC;
+    //         $codigoContratoComparar = $request->codigoC2;
+    //         if($codigosContrato == null || $codigoContratoComparar == null){ return ["status" => "0", "message" => "No hay codigo de periodo"]; }
+    //         //obtener los vendedores que tienen pedidos
+    //         $query = DB::SELECT("SELECT DISTINCT p.id_asesor ,
+    //         CONCAT(u.nombres, ' ', u.apellidos) AS asesor, u.cedula,u.iniciales
+    //         FROM pedidos p
+    //         LEFT JOIN usuario u ON p.id_asesor = u.idusuario
+    //         WHERE p.id_asesor <> '68750'
+    //         AND p.id_asesor <> '6698'
+    //         AND u.id_group = '11'
+    //         ");
+    //         $datos = [];
+    //         foreach($query as $keyP => $itemP){
+    //             //asesores
+    //             $teran = ["OT","OAT"];
+    //             $galo  = ["EZ","EZP"];
+    //             //VARIABLES
+    //             $iniciales  = $itemP->iniciales;
+    //             //ASESORES QUE TIENE MAS DE UNA INICIAL
+    //             $valores            = [];
+    //             $valores2           = [];
+    //             $arrayAsesor        = [];
+    //             $JsonDespues        = [];
+    //             $JsonAntes          = [];
+    //             $contratosDespues   = [];
+    //             $arraySinContrato   = [];
+    //             $ventaBrutaActual   = 0;
+    //             $ven_neta_actual    = 0;
+    //             //==========CONTRATOS===================
+    //             if($iniciales == 'OT' || $iniciales == 'EZ'){
+    //                 if($iniciales == 'OT') $arrayAsesor = $teran;
+    //                 if($iniciales == 'EZ') $arrayAsesor = $galo;
+    //                 foreach($arrayAsesor as $key => $item){
+    //                     //PERIODO DESPUES
+    //                     $json      = $this->getContratos($itemP->id_asesor,$item,$periodo2,$codigoContratoComparar);
+    //                     //PERIODO ANTES
+    //                     $json2      = $this->getContratos($itemP->id_asesor,$item,$periodo,$codigosContrato);
+    //                     $valores[$key]  = $json;
+    //                     $valores2[$key] = $json2;
+    //                 }
+    //                 // return array_values($valores2);
+    //                 $JsonDespues         =  array_merge($valores[0], $valores[1]);
+    //                 $JsonAntes           =  array_merge($valores2[0], $valores2[1]);
+    //             }else{
+    //                  //PERIODO DESPUES
+    //                 $JsonDespues        = $this->getContratos($itemP->id_asesor,$iniciales,$periodo2,$codigoContratoComparar);
+    //                  //PERIODO ANTES
+    //                 $JsonAntes          = $this->getContratos($itemP->id_asesor,$iniciales,$periodo,$codigosContrato);
+    //             }
+    //             //quitar duplicar de JsonDespues y $JsonAntes
+    //             $JsonDespues = array_values(array_unique($JsonDespues, SORT_REGULAR));
+    //             $JsonAntes   = array_values(array_unique($JsonAntes, SORT_REGULAR));
+    //             //==========SIN CONTRATOS===================
+    //             $getSinContrato = $this->getSinContratoProlipa($itemP->id_asesor,$periodo);
+    //             if(empty($getSinContrato)){
+    //                 $ventaBrutaActual = 0;
+    //                 $ven_neta_actual  = 0;
+    //             }else{
+    //                 $ventaBrutaActual = $getSinContrato[0]->ventaBrutaActual;
+    //                 $ven_neta_actual  = $getSinContrato[0]->ven_neta_actual;
+    //             }
+    //             $arraySinContrato[0] = [
+    //                 "ventaBrutaActual"      => $ventaBrutaActual == null ? '0' :$ventaBrutaActual,
+    //                 "ven_neta_actual"       => $ven_neta_actual  == null ? '0' :$ven_neta_actual,
+    //             ];
+    //             //SEND ARRAY
+    //             $contratosDespues = [
+    //                 "contratos"             => $JsonDespues,
+    //                 "sin_contratos"         => $arraySinContrato
+    //             ];
+    //             $datos[$keyP] = [
+    //                 "id_asesor"             => $itemP->id_asesor,
+    //                 "asesor"                => $itemP->asesor,
+    //                 "iniciales"             => $itemP->iniciales,
+    //                 "cedula"                => $itemP->cedula,
+    //                 "ContratosDespues"      => $contratosDespues,
+    //                 "ContratosAnterior"     => $JsonAntes,
+    //              ];
+    //         }//FIN FOR EACH ASESORES
+    //         // TRAER REGALADOS
+    //         $regaladosAnterior = DB::SELECT("SELECT
+    //                 CONCAT(u.nombres, ' ', u.apellidos) AS asesor,  -- Nombre completo del asesor
+    //                 p.id_asesor,  -- ID del asesor
+    //                 -- Con documentos
+    //                 SUM(CASE WHEN c.codigo_proforma IS NOT NULL THEN 1 ELSE 0 END) AS cantidad_con_documentos,
+    //                 SUM(CASE
+    //                         WHEN v.ven_desc_por = '100' THEN 0
+    //                         ELSE pr.pfn_pvp * (1 - (CAST(v.ven_desc_por AS DECIMAL(5,2)) / 100))
+    //                     END) AS valor_total_con_descuento,
+    //                 -- Sin documentos
+    //                 SUM(CASE WHEN c.codigo_proforma IS NULL THEN 1 ELSE 0 END) AS cantidad_sin_documentos,
+    //                 0 AS valor_sin_documentos  -- Valor para 'sin documentos' es 0
+    //             FROM
+    //                 codigoslibros c
+    //             LEFT JOIN
+    //                 pedidos p ON p.contrato_generado = c.contrato
+    //             LEFT JOIN
+    //                 pedidos_formato_new pr ON pr.idlibro = c.libro_idlibro
+    //             LEFT JOIN
+    //                 f_venta v ON v.ven_codigo = c.codigo_proforma AND v.id_empresa = c.proforma_empresa
+    //             LEFT JOIN
+    //                 libros_series ls ON ls.idLibro = c.libro_idlibro
+    //             LEFT JOIN
+    //                 usuario u ON u.idusuario = p.id_asesor  -- Relación con usuario para obtener el nombre completo
+    //             WHERE
+    //                 c.contrato IS NOT NULL
+    //                 AND c.contrato != ''
+    //                 AND c.contrato != '0'
+    //                 AND c.prueba_diagnostica = '0'
+    //                 AND c.bc_periodo = '$periodo'
+    //                 AND c.estado_liquidacion = '2'
+    //                 AND pr.idperiodoescolar = '$periodo'
+    //             GROUP BY
+    //                 u.nombres, u.apellidos, p.id_asesor;  -- Agrupamos por asesor (nombres, apellidos, id_asesor)
+    //             ");
+    //         // agregar como regalados donde el id_asesor sea igual
+    //         foreach($datos as $key => $item){
+    //             foreach($regaladosAnterior as $k => $tr){
+    //                 if($item['id_asesor'] == $tr->id_asesor){
+    //                     $datos[$key]['regaladosAnterior'] = [
+    //                         "cantidad_con_documentos"   => $tr->cantidad_con_documentos,
+    //                         "valor_total_con_descuento" => $tr->valor_total_con_descuento,
+    //                         "cantidad_sin_documentos"   => $tr->cantidad_sin_documentos,
+    //                         "valor_sin_documentos"      => $tr->valor_sin_documentos,
+    //                     ];
+    //                 }
+    //             }
+    //             if(!isset($datos[$key]['regaladosAnterior'])){
+    //                 $datos[$key]['regaladosAnterior'] = [
+    //                     "cantidad_con_documentos"   => 0,
+    //                     "valor_total_con_descuento" => 0,
+    //                     "cantidad_sin_documentos"   => 0,
+    //                     "valor_sin_documentos"      => 0,
+    //                 ];
+    //             }
+    //         }
+    //         return $datos;
+    //         } catch (\Exception  $ex) {
+    //         return ["status" => "0","message" => "Hubo problemas con la conexión al servidor".$ex->getMessage()];
+    //     }
+    // }
+
     public function pruebaApi(Request $request){
         try {
             set_time_limit(6000000);
             ini_set('max_execution_time', 6000000);
-            $datos=[];
-            //anterior
-            $periodo                = $request->periodo_idUno;
-            //despues
-            $periodo2               = $request->periodo_idDos;
-            $codigosContrato        = $request->codigoC;
-            $codigoContratoComparar = $request->codigoC2;
-            if($codigosContrato == null || $codigoContratoComparar == null){ return ["status" => "0", "message" => "No hay codigo de periodo"]; }
-            //obtener los vendedores que tienen pedidos
-            $query = DB::SELECT("SELECT DISTINCT p.id_asesor ,
-            CONCAT(u.nombres, ' ', u.apellidos) AS asesor, u.cedula,u.iniciales
-            FROM pedidos p
-            LEFT JOIN usuario u ON p.id_asesor = u.idusuario
-            WHERE p.id_asesor <> '68750'
-            AND p.id_asesor <> '6698'
-            AND u.id_group = '11'
-            ");
+
             $datos = [];
-            foreach($query as $keyP => $itemP){
-                //asesores
-                $teran = ["OT","OAT"];
-                $galo  = ["EZ","EZP"];
-                //VARIABLES
-                $iniciales  = $itemP->iniciales;
-                //ASESORES QUE TIENE MAS DE UNA INICIAL
-                $valores            = [];
-                $valores2           = [];
-                $arrayAsesor        = [];
-                $JsonDespues        = [];
-                $JsonAntes          = [];
-                $contratosDespues   = [];
-                $arraySinContrato   = [];
-                $ventaBrutaActual   = 0;
-                $ven_neta_actual    = 0;
-                //==========CONTRATOS===================
-                if($iniciales == 'OT' || $iniciales == 'EZ'){
-                    if($iniciales == 'OT') $arrayAsesor = $teran;
-                    if($iniciales == 'EZ') $arrayAsesor = $galo;
-                    foreach($arrayAsesor as $key => $item){
-                        //PERIODO DESPUES
-                        $json      = $this->getContratos($itemP->id_asesor,$item,$periodo2,$codigoContratoComparar);
-                        //PERIODO ANTES
-                        $json2      = $this->getContratos($itemP->id_asesor,$item,$periodo,$codigosContrato);
-                        $valores[$key]  = $json;
-                        $valores2[$key] = $json2;
+
+            // Periodos
+            $periodo = $request->periodo_idUno;
+            $periodo2 = $request->periodo_idDos;
+            $codigosContrato = $request->codigoC;
+            $codigoContratoComparar = $request->codigoC2;
+
+            // Validación de parámetros
+            if ($codigosContrato == null || $codigoContratoComparar == null) {
+                return ["status" => "0", "message" => "No hay código de periodo"];
+            }
+
+            // Obtener los vendedores que tienen pedidos
+            $query = DB::SELECT("SELECT DISTINCT p.id_asesor,
+                CONCAT(u.nombres, ' ', u.apellidos) AS asesor, u.cedula, u.iniciales
+                FROM pedidos p
+                LEFT JOIN usuario u ON p.id_asesor = u.idusuario
+                WHERE p.id_asesor <> '68750'
+                -- AND p.id_asesor <> '6698'
+                AND u.id_group = '11'
+            ");
+
+            // Procesar cada asesor
+            foreach ($query as $keyP => $itemP) {
+                $teran = ["OT", "OAT"];
+                $galo = ["EZ", "EZP"];
+                $iniciales = $itemP->iniciales;
+                $arrayAsesor = [];
+                $JsonDespues = [];
+                $JsonAntes = [];
+
+                if ($iniciales == 'OT' || $iniciales == 'EZ') {
+                    if ($iniciales == 'OT') $arrayAsesor = $teran;
+                    if ($iniciales == 'EZ') $arrayAsesor = $galo;
+
+                    foreach ($arrayAsesor as $key => $item) {
+                        // $JsonDespues[] = $this->getContratos($itemP->id_asesor, $item, $periodo2, $codigoContratoComparar);
+                        // $JsonAntes[] = $this->getContratos($itemP->id_asesor, $item, $periodo, $codigosContrato);
+                        $JsonDespues = array_merge($JsonDespues, $this->getContratos($itemP->id_asesor, $item, $periodo2, $codigoContratoComparar));
+                        $JsonAntes   = array_merge($JsonAntes,   $this->getContratos($itemP->id_asesor, $item, $periodo, $codigosContrato));
+
                     }
-                    // return array_values($valores2);
-                    $JsonDespues         =  array_merge($valores[0], $valores[1]);
-                    $JsonAntes           =  array_merge($valores2[0], $valores2[1]);
-                }else{
-                     //PERIODO DESPUES
-                    $JsonDespues        = $this->getContratos($itemP->id_asesor,$iniciales,$periodo2,$codigoContratoComparar);
-                     //PERIODO ANTES
-                    $JsonAntes          = $this->getContratos($itemP->id_asesor,$iniciales,$periodo,$codigosContrato);
+                } else {
+                    $JsonDespues = $this->getContratos($itemP->id_asesor, $iniciales, $periodo2, $codigoContratoComparar);
+                    $JsonAntes = $this->getContratos($itemP->id_asesor, $iniciales, $periodo, $codigosContrato);
                 }
-                //quitar duplicar de JsonDespues y $JsonAntes
+
+                // Eliminar duplicados
                 $JsonDespues = array_values(array_unique($JsonDespues, SORT_REGULAR));
-                $JsonAntes   = array_values(array_unique($JsonAntes, SORT_REGULAR));
-                //==========SIN CONTRATOS===================
-                $getSinContrato = $this->getSinContratoProlipa($itemP->id_asesor,$periodo);
-                if(empty($getSinContrato)){
-                    $ventaBrutaActual = 0;
-                    $ven_neta_actual  = 0;
-                }else{
-                    $ventaBrutaActual = $getSinContrato[0]->ventaBrutaActual;
-                    $ven_neta_actual  = $getSinContrato[0]->ven_neta_actual;
-                }
+                $JsonAntes = array_values(array_unique($JsonAntes, SORT_REGULAR));
+
+                // Obtener datos de sin contratos
+                $getSinContrato = $this->getSinContratoProlipa($itemP->id_asesor, $periodo);
+                $ventaBrutaActual = $getSinContrato ? $getSinContrato[0]->ventaBrutaActual : 0;
+                $ven_neta_actual = $getSinContrato ? $getSinContrato[0]->ven_neta_actual : 0;
+
                 $arraySinContrato[0] = [
-                    "ventaBrutaActual"      => $ventaBrutaActual == null ? '0' :$ventaBrutaActual,
-                    "ven_neta_actual"       => $ven_neta_actual  == null ? '0' :$ven_neta_actual,
+                    "ventaBrutaActual" => $ventaBrutaActual,
+                    "ven_neta_actual" => $ven_neta_actual,
                 ];
-                //SEND ARRAY
+
                 $contratosDespues = [
-                    "contratos"             => $JsonDespues,
-                    "sin_contratos"         => $arraySinContrato
+                    "contratos" => $JsonDespues,
+                    "sin_contratos" => $arraySinContrato
                 ];
+
+                // Agregar asesor a los datos
                 $datos[$keyP] = [
-                    "id_asesor"             => $itemP->id_asesor,
-                    "asesor"                => $itemP->asesor,
-                    "iniciales"             => $itemP->iniciales,
-                    "cedula"                => $itemP->cedula,
-                    "ContratosDespues"      => $contratosDespues,
-                    "ContratosAnterior"     => $JsonAntes,
-                 ];
-            }//FIN FOR EACH ASESORES
+                    "id_asesor" => $itemP->id_asesor,
+                    "asesor" => $itemP->asesor,
+                    "iniciales" => $itemP->iniciales,
+                    "cedula" => $itemP->cedula,
+                    "ContratosDespues" => $contratosDespues,
+                    "ContratosAnterior" => $JsonAntes,
+                ];
+            }
+
+            // Definir los regalados
+            if ($periodo != $periodo2) {
+                // Si los periodos son diferentes, se obtienen los regalados de cada periodo
+                $regaladosAnterior = $this->getRegalados($periodo);
+                $regaladosDespues = $this->getRegalados($periodo2);
+
+                // Agregar regalados a los datos de cada asesor
+                $this->agregarRegalados($datos, $regaladosAnterior, 'regaladosAnterior');
+                $this->agregarRegalados($datos, $regaladosDespues, 'regaladosDespues');
+            } else {
+                // Si los periodos son iguales, solo asignar el mismo valor para regaladosAnterior y regaladosDespues
+                $regalados = $this->getRegalados($periodo);
+                $this->agregarRegalados($datos, $regalados, 'regaladosAnterior');
+                $this->agregarRegalados($datos, $regalados, 'regaladosDespues');
+            }
+
+            // Cupones
+            $cuponesAnterior = DB::SELECT("SELECT
+                p.id_asesor,
+                SUM(v.total_descuento) AS total_descuento
+            FROM verificaciones_descuentos v
+            LEFT JOIN pedidos p
+                ON p.contrato_generado = v.contrato
+            WHERE p.estado = '1'
+            AND p.id_periodo = '$periodo'
+            AND v.estado = '1'
+            GROUP BY p.id_asesor;
+            ");
+            // Cupones despues
+            $cuponesDespues = DB::SELECT("SELECT
+                p.id_asesor,
+                SUM(v.total_descuento) AS total_descuento
+            FROM verificaciones_descuentos v
+            LEFT JOIN pedidos p
+                ON p.contrato_generado = v.contrato
+            WHERE p.estado = '1'
+            AND p.id_periodo = '$periodo2'
+            AND v.estado = '1'
+            GROUP BY p.id_asesor;
+            ");
+            // filtrar para agregar a cada asesor por id_asesor
+            foreach ($datos as $key => $item) {
+                foreach ($cuponesAnterior as $k => $tr) {
+                    if ($item['id_asesor'] == $tr->id_asesor) {
+                        $datos[$key]['cuponesAnterior'] = [
+                            "total_descuento" => $tr->total_descuento,
+                        ];
+                    }
+                }
+                if (!isset($datos[$key]['cuponesAnterior'])) {
+                    $datos[$key]['cuponesAnterior'] = [
+                        "total_descuento" => 0,
+                    ];
+                }
+
+                foreach ($cuponesDespues as $k => $tr) {
+                    if ($item['id_asesor'] == $tr->id_asesor) {
+                        $datos[$key]['cuponesDespues'] = [
+                            "total_descuento" => $tr->total_descuento,
+                        ];
+                    }
+                }
+                if (!isset($datos[$key]['cuponesDespues'])) {
+                    $datos[$key]['cuponesDespues'] = [
+                        "total_descuento" => 0,
+                    ];
+                }
+            }
+
             return $datos;
-            } catch (\Exception  $ex) {
-            return ["status" => "0","message" => "Hubo problemas con la conexión al servidor".$ex->getMessage()];
+
+        } catch (\Exception $ex) {
+            return ["status" => "0", "message" => "Hubo problemas con la conexión al servidor: " . $ex->getMessage()];
         }
     }
-    public function getContratos($id_asesor,$iniciales,$periodo,$codigoContrato=null){
+
+
+
+    public function getRegalados($periodo) {
+        // return DB::SELECT("
+        //     SELECT
+        //         CONCAT(u.nombres, ' ', u.apellidos) AS asesor,
+        //         p.id_asesor,
+        //         SUM(CASE WHEN c.codigo_proforma IS NOT NULL THEN 1 ELSE 0 END) AS cantidad_con_documentos,
+        //         SUM(CASE
+        //                 WHEN v.ven_desc_por = '100' THEN 0
+        //                 ELSE pr.pfn_pvp * (1 - (CAST(v.ven_desc_por AS DECIMAL(5,2)) / 100))
+        //             END) AS valor_total_con_descuento,
+        //         SUM(CASE WHEN c.codigo_proforma IS NULL THEN 1 ELSE 0 END) AS cantidad_sin_documentos,
+        //         0 AS valor_sin_documentos
+        //     FROM
+        //         codigoslibros c
+        //     LEFT JOIN
+        //         pedidos p ON p.contrato_generado = c.contrato
+        //     LEFT JOIN
+        //         pedidos_formato_new pr ON pr.idlibro = c.libro_idlibro
+        //     LEFT JOIN
+        //         f_venta v ON v.ven_codigo = c.codigo_proforma AND v.id_empresa = c.proforma_empresa
+        //     LEFT JOIN
+        //         libros_series ls ON ls.idLibro = c.libro_idlibro
+        //     LEFT JOIN
+        //         usuario u ON u.idusuario = p.id_asesor
+        //     WHERE
+        //         c.contrato IS NOT NULL
+        //         AND c.contrato != ''
+        //         AND c.contrato != '0'
+        //         AND c.prueba_diagnostica = '0'
+        //         AND c.bc_periodo = '$periodo'
+        //         AND c.estado_liquidacion = '2'
+        //         AND pr.idperiodoescolar = '$periodo'
+        //     GROUP BY
+        //         u.nombres, u.apellidos, p.id_asesor;
+        // ");
+        return DB::SELECT("SELECT
+            CONCAT(u.nombres, ' ', u.apellidos) AS asesor,
+            p.id_asesor,
+
+            -- Codigos incluidos
+            SUM(CASE WHEN c.codigo_proforma IS NOT NULL
+                        AND (c.quitar_de_reporte  <> '1')
+                    THEN 1 ELSE 0 END) AS cantidad_con_documentos,
+
+            SUM(CASE
+                    WHEN (c.quitar_de_reporte IS NULL OR c.quitar_de_reporte <> '1')
+                        AND v.ven_desc_por != '100'
+                    THEN pr.pfn_pvp * (1 - (CAST(v.ven_desc_por AS DECIMAL(5,2)) / 100))
+                    ELSE 0
+                END) AS valor_total_con_descuento,
+
+            SUM(CASE WHEN c.codigo_proforma IS NULL
+                        AND (c.quitar_de_reporte IS NULL OR c.quitar_de_reporte <> '1')
+                    THEN 1 ELSE 0 END) AS cantidad_sin_documentos,
+
+            0 AS valor_sin_documentos,
+
+            -- Codigos excluidos (quitados del reporte)
+            SUM(CASE WHEN c.quitar_de_reporte = '1' THEN 1 ELSE 0 END) AS cantidad_excluidos
+
+        FROM
+            codigoslibros c
+        LEFT JOIN
+            pedidos p ON p.contrato_generado = c.contrato
+        LEFT JOIN
+            pedidos_formato_new pr ON pr.idlibro = c.libro_idlibro
+        LEFT JOIN
+            f_venta v ON v.ven_codigo = c.codigo_proforma AND v.id_empresa = c.proforma_empresa
+        LEFT JOIN
+            libros_series ls ON ls.idLibro = c.libro_idlibro
+        LEFT JOIN
+            usuario u ON u.idusuario = p.id_asesor
+        WHERE
+            c.contrato IS NOT NULL
+            AND c.contrato != ''
+            AND c.contrato != '0'
+            AND c.prueba_diagnostica = '0'
+            AND c.bc_periodo = '$periodo'
+            AND c.estado_liquidacion = '2'
+            AND pr.idperiodoescolar = '$periodo'
+        GROUP BY
+            u.nombres, u.apellidos, p.id_asesor;
+
+        ");
+    }
+
+    public function agregarRegalados(&$datos, $regalados, $key) {
+        foreach ($datos as $keyP => $item) {
+            foreach ($regalados as $regalado) {
+                if ($item['id_asesor'] == $regalado->id_asesor) {
+                    $datos[$keyP][$key] = [
+                        "cantidad_con_documentos" => $regalado->cantidad_con_documentos,
+                        "valor_total_con_descuento" => $regalado->valor_total_con_descuento,
+                        "cantidad_sin_documentos" => $regalado->cantidad_sin_documentos,
+                        "valor_sin_documentos" => $regalado->valor_sin_documentos,
+                        "cantidad_excluidos" => $regalado->cantidad_excluidos
+                    ];
+                }
+            }
+            if (!isset($datos[$keyP][$key])) {
+                $datos[$keyP][$key] = [
+                    "cantidad_con_documentos" => 0,
+                    "valor_total_con_descuento" => 0,
+                    "cantidad_sin_documentos" => 0,
+                    "valor_sin_documentos" => 0,
+                    "cantidad_excluidos" => 0
+                ];
+            }
+        }
+    }
+
+
+     public function getContratos($id_asesor,$iniciales,$periodo,$codigoContrato=null){
         return $this->getContratosAsesorProlipa($id_asesor,$periodo);
         // if($periodo > 21){  return $this->getContratosAsesorProlipa($id_asesor,$periodo); }
         // else             {  return $this->getContratosFueraProlipa($iniciales,$codigoContrato); }
@@ -852,22 +1183,7 @@ class AdminController extends Controller
         //     ], 500);
         // }
     }
-    public function guardarIdProducto($process,$pro_codigo,$campoPerseo){
-        $contador = 0;
-        $datos    = [];
-        if(isset($process["productos"])){
-            $idPerseo = $process["productos"][0]["productosid"];
-            $datos = [ $campoPerseo => $idPerseo ];
-            $contador = 1;
-        }else{
-            $datos = [ $campoPerseo => 0 ];
-            $contador = 0;
-        }
-        DB::table('1_4_cal_producto')
-        ->where('pro_codigo',$pro_codigo)
-        ->update($datos);
-        return $contador;
-    }
+
     public function guardarIdProductoSolinfa($process,$pro_codigo,$campoPerseo){
         $contador = 0;
         $datos    = [];
@@ -1303,4 +1619,307 @@ class AdminController extends Controller
         return "se actualizó";
     }
     // METODOS JEYSON FIN
+    public function limpiarCeroParallenarIdsPerseo(){
+        try {
+            //LIMPIAR LOS CEROS
+            DB::table('1_4_cal_producto')
+            ->where('id_perseo_prolipa_produccion', 0)
+            ->whereIn('gru_pro_codigo', ['1', '2'])
+            ->update(['id_perseo_prolipa_produccion' => NULL]);
+
+            DB::table('1_4_cal_producto')
+            ->where('id_perseo_calmed_produccion', 0)
+            ->whereIn('gru_pro_codigo', ['1', '2'])
+            ->update(['id_perseo_calmed_produccion' => NULL]);
+
+
+            return "Se limpiaron a los ceros a null para proceder a llenar los ids de Perseo";
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+    public function llenarIdsPerseo(){
+        try {
+            $contadorProlipa = 0;
+            $contadorCalmed  = 0;
+            $arrayProblemasProlipa  = [];
+            $arrayProblemasCalmed  = [];
+
+            //PROLIPA
+            $queryProlipa = DB::SELECT("SELECT * FROM 1_4_cal_producto p
+            WHERE p.id_perseo_prolipa_produccion IS NULL
+            AND  (p.gru_pro_codigo = '1' OR p.gru_pro_codigo = '2')
+            LIMIT 25
+            ");
+            foreach($queryProlipa as $key => $item){
+                $formData = [
+                    "productocodigo"=> $item->pro_codigo,
+                ];
+                $url                = "productos_consulta";
+                $processProlipa     = $this->tr_PerseoPost($url, $formData,1);
+                if(isset($processProlipa["informacion"])){
+                    array_push($arrayProblemasProlipa,["pro_codigo" => $item->pro_codigo,"message" => 'No encontrado en perseo empresa Prolipa']);
+                    continue;
+                }
+                $getContador        = $this->guardarIdProducto($processProlipa,$item->pro_codigo,"id_perseo_prolipa_produccion");
+                //contadorProlipa + getContador
+                $contadorProlipa    = $contadorProlipa + $getContador;
+            }
+            //CALMED
+            $queryCalmed = DB::SELECT("SELECT * FROM 1_4_cal_producto p
+            WHERE p.id_perseo_calmed_produccion IS NULL
+            AND  (p.gru_pro_codigo = '1' OR p.gru_pro_codigo = '2')
+            LIMIT 25
+            ");
+            foreach($queryCalmed as $key => $item){
+                $formData = [
+                    "productocodigo"=> $item->pro_codigo,
+                ];
+                $url                = "productos_consulta";
+                $processCalmed      = $this->tr_PerseoPost($url, $formData,3);
+                if(isset($processCalmed["informacion"])){
+                    array_push($arrayProblemasCalmed,["pro_codigo" => $item->pro_codigo,"message" => 'No encontrado en perseo empresa Calmed']);
+                    continue;
+                }
+                $getContador        = $this->guardarIdProducto($processCalmed,$item->pro_codigo,"id_perseo_calmed_produccion");
+                //contadorCalmed + getContador
+                $contadorCalmed     = $contadorCalmed + $getContador;
+            }
+            return ["contadorProlipa" => $contadorProlipa, "arrayProblemasProlipa" => $arrayProblemasProlipa, "contadorCalmed" => $contadorCalmed, "arrayProblemasCalmed" => $arrayProblemasCalmed];
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+    public function llenarIdsPerseoxCodigo($codigo){
+        try {
+            $contadorProlipa = 0;
+            $contadorCalmed  = 0;
+            $arrayProblemasProlipa  = [];
+            $arrayProblemasCalmed  = [];
+
+            //PROLIPA
+            $queryProlipa = DB::SELECT("
+                SELECT *
+                FROM 1_4_cal_producto p
+                WHERE (p.id_perseo_prolipa_produccion IS NULL OR p.id_perseo_prolipa_produccion = 0)
+                AND p.pro_codigo = '$codigo'
+            ");
+            foreach($queryProlipa as $key => $item){
+                $formData = [
+                    "productocodigo"=> $item->pro_codigo,
+                ];
+                $url                = "productos_consulta";
+                $processProlipa     = $this->tr_PerseoPost($url, $formData,1);
+                if(isset($processProlipa["informacion"])){
+                    array_push($arrayProblemasProlipa,["pro_codigo" => $item->pro_codigo,"message" => 'No encontrado en perseo empresa Prolipa']);
+                    continue;
+                }
+                $getContador        = $this->guardarIdProducto($processProlipa,$item->pro_codigo,"id_perseo_prolipa_produccion");
+                //contadorProlipa + getContador
+                $contadorProlipa    = $contadorProlipa + $getContador;
+            }
+            //CALMED
+            $queryCalmed = DB::SELECT("
+                SELECT *
+                FROM 1_4_cal_producto p
+                WHERE (p.id_perseo_calmed_produccion IS NULL OR p.id_perseo_calmed_produccion = 0)
+                AND p.pro_codigo = '$codigo'
+            ");
+
+            foreach($queryCalmed as $key => $item){
+                $formData = [
+                    "productocodigo"=> $item->pro_codigo,
+                ];
+                $url                = "productos_consulta";
+                $processCalmed      = $this->tr_PerseoPost($url, $formData,3);
+                if(isset($processCalmed["informacion"])){
+                    array_push($arrayProblemasCalmed,["pro_codigo" => $item->pro_codigo,"message" => 'No encontrado en perseo empresa Calmed']);
+                    continue;
+                }
+                $getContador        = $this->guardarIdProducto($processCalmed,$item->pro_codigo,"id_perseo_calmed_produccion");
+                //contadorCalmed + getContador
+                $contadorCalmed     = $contadorCalmed + $getContador;
+            }
+            return ["contadorProlipa" => $contadorProlipa, "arrayProblemasProlipa" => $arrayProblemasProlipa, "contadorCalmed" => $contadorCalmed, "arrayProblemasCalmed" => $arrayProblemasCalmed];
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+     public function guardarIdProducto($process,$pro_codigo,$campoPerseo){
+        $contador = 0;
+        $datos    = [];
+        if(isset($process["productos"])){
+            $idPerseo = $process["productos"][0]["productosid"];
+            $datos = [ $campoPerseo => $idPerseo ];
+            $contador = 1;
+        }else{
+            $datos = [ $campoPerseo => 0 ];
+            $contador = 0;
+        }
+        DB::table('1_4_cal_producto')
+        ->where('pro_codigo',$pro_codigo)
+        ->update($datos);
+        return $contador;
+    }
+
+
+
+    public function llenarIdsPerseoxCodigoXEmpresa($codigo, $empresa)
+    {
+        try {
+            $estado = 0; // 0 = sin cambios, 1 = éxito, 2 = error o fallo
+            $mensaje = '';
+
+            $campoPerseo = '';
+            $tipoEmpresa = 0;
+
+            if ($empresa == 'prolipa') {
+                $campoPerseo = 'id_perseo_prolipa_produccion';
+                $tipoEmpresa = 1;
+            } elseif ($empresa == 'calmed') {
+                $campoPerseo = 'id_perseo_calmed_produccion';
+                $tipoEmpresa = 3;
+            } else {
+                return response()->json([
+                    'estado' => 2,
+                    'mensaje' => 'Empresa no válida'
+                ], 400);
+            }
+
+            // Buscar producto sin ID Perseo
+            $producto = DB::table('1_4_cal_producto')
+                ->where(function ($q) use ($campoPerseo) {
+                    $q->whereNull($campoPerseo)
+                    ->orWhere($campoPerseo, 0);
+                })
+                ->where('pro_codigo', $codigo)
+                ->first();
+
+            if (!$producto) {
+                return response()->json([
+                    'estado' => 0,
+                    'mensaje' => 'No hay registros para actualizar'
+                ]);
+            }
+
+            // Consultar en Perseo
+            $formData = [
+                "productocodigo" => $producto->pro_codigo,
+            ];
+            $url = "productos_consulta";
+            $response = $this->tr_PerseoPost($url, $formData, $tipoEmpresa);
+
+            // Validar si Perseo no devolvió datos
+            if (isset($response["informacion"]) && $response["informacion"] === false) {
+                return response()->json([
+                    'estado' => 2,
+                    'mensaje' => "El producto {$producto->pro_codigo} no se encuentra en Perseo"
+                ]);
+            }
+
+            // Guardar el ID retornado (si existe)
+            $resultado = $this->guardarIdProductoPerseo($response, $producto->pro_codigo, $campoPerseo);
+
+            if ($resultado === 1) {
+                return response()->json([
+                    'estado' => 1,
+                    'mensaje' => 'Actualización exitosa'
+                ]);
+            } else {
+                return response()->json([
+                    'estado' => 2,
+                    'mensaje' => 'No se obtuvo ID válido desde Perseo'
+                ]);
+            }
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'estado' => 2,
+                'mensaje' => 'Error: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+
+    public function guardarIdProductoPerseo($process, $pro_codigo, $campoPerseo) {
+        if (isset($process["productos"]) && isset($process["productos"][0]["productosid"])) {
+            $idPerseo = $process["productos"][0]["productosid"];
+            DB::table('1_4_cal_producto')
+                ->where('pro_codigo', $pro_codigo)
+                ->update([$campoPerseo => $idPerseo]);
+            return 1; // éxito
+        } else {
+            DB::table('1_4_cal_producto')
+                ->where('pro_codigo', $pro_codigo)
+                ->update([$campoPerseo => 0]);
+            return 0; // fallo al obtener ID
+        }
+    }
+ public function Post_ActualizarPorcentaje_VentaActa(Request $request)
+    {
+        // Iniciar una transacción para garantizar la integridad de los datos
+        DB::beginTransaction();
+        try {
+            // Buscar el registro de venta basado en id_empresa y ven_codigo
+            $venta = DB::table('f_venta')
+                    ->where('id_empresa', $request->id_empresa)
+                    ->where('ven_codigo', $request->ven_codigo)
+                    ->first();
+
+            if (!$venta) {
+                // Si no se encuentra el registro, devolver un error
+                return response()->json(["status" => "0", 'message' => 'Venta no encontrada'], 404);
+            }
+
+            // Buscar la proforma asociada a la venta
+            $actas = DB::table('p_libros_obsequios')
+            ->where('id', $venta->ven_p_libros_obsequios)
+            ->first();
+
+            if (!$actas) {
+                // Si no se encuentra la proforma, devolver un error
+                return response()->json(["status" => "0", 'message' => 'Actas o nota no encontrada'], 404);
+            }
+
+            // Actualizar el campo pro_des_por en la tabla f_proforma
+            DB::table('p_libros_obsequios')
+                ->where('id', $venta->ven_p_libros_obsequios)
+                ->update(['porcentaje_descuento' => $request->ven_desc_por]);
+
+            // Actualizar el campo ven_desc_por en la tabla f_venta
+            DB::table('f_venta')
+                ->where('id_empresa', $request->id_empresa)
+                ->where('ven_codigo', $request->ven_codigo)
+                ->update(['ven_desc_por' => $request->ven_desc_por]);
+
+            // Llamar a ActualizarPorcentajeRepository si es necesario
+            // DB::rollback();
+            $this->devolucionRepository->updateValoresDocumentoF_venta($venta->ven_codigo, $venta->id_empresa);
+
+            // Confirmar la transacción
+            DB::commit();
+
+            return response()->json(["status" => "1", 'message' => 'Registro actualizado correctamente']);
+        } catch (\Exception $e) {
+            // En caso de error, revertir la transacción
+            DB::rollback();
+            return response()->json(["status" => "0", 'message' => 'Error al actualizar los datos: ' . $e->getMessage()], 500);
+        }
+    }
+    public function hola(){
+       $query = DB::select("select * from area");
+       $query2 = DB::select("select * from nivel");
+        return [
+            "area" => $query,
+            "nivel" => $query2
+        ];
+    }
 }
+
+

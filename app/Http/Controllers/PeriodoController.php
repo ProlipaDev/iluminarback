@@ -66,6 +66,11 @@ class PeriodoController extends Controller
         return $query;
     }
 
+    public function GetPeriodoescolar_FicheroMercado(){
+        $query = DB::SELECT("SELECT * FROM periodoescolar WHERE permiso_fichero_mercado = 1");
+        return $query;
+    }
+
 
 
     public function usuariosXperiodoSierra(Request $request){
@@ -232,6 +237,8 @@ class PeriodoController extends Controller
         $periodo->pedido_gerencia       = $request->pedido_gerencia;
         $periodo->pedido_bodega         = $request->pedido_bodega;
         $periodo->pedido_asesor         = $request->pedido_asesor;
+        //fichero de mercado
+        $periodo->permiso_fichero_mercado    = $request->permiso_fichero_mercado;
         //obsequios
         $periodo->obsequios_admin       = $request->obsequios_admin;
         $periodo->obsequios_facturador  = $request->obsequios_facturador;

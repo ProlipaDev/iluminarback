@@ -272,5 +272,139 @@ class ActividadAnimacionController extends Controller
         return $query;
     }
 
+    //INICIO METODOS JEYSON
+    public function Transferencia_ActividadesyAnimaciones_Asignatura(Request $request)
+    {
+        $origen = $request->asignatura_a_transferir;
+        $destino = $request->asignatura_recibir_transferencia;
 
+        if (!$origen || !$destino) {
+            return response()->json([
+                "status" => 0,
+                "message" => "Asignaturas no válidas"
+            ]);
+        }
+
+        // 1. Obtener todos los temas de la asignatura origen
+        $TemasyUnidadesOrigen = DB::table('temas')
+            ->where('id_asignatura', $origen["idasignatura"])
+            ->get();
+
+        // 2. Añadir actividades a cada tema
+        foreach ($TemasyUnidadesOrigen as $tema) {
+            $tema->actividades = DB::table('actividades_animaciones')
+                ->where('id_tema', $tema->id)
+                ->get();
+        }
+
+        // 3. Obtener todas las actividades de los temas origen
+        $idsTemasOrigen = $TemasyUnidadesOrigen->pluck('id')->toArray();
+        $ActividadesOrigen = [];
+        if (!empty($idsTemasOrigen)) {
+            $ActividadesOrigen = DB::table('actividades_animaciones')
+                ->whereIn('id_tema', $idsTemasOrigen)
+                ->get();
+        }
+
+        // 4. Eliminar previamente todas las actividades existentes de la asignatura destino
+        $temasDestino = DB::table('temas')
+            ->where('id_asignatura', $destino["idasignatura"])
+            ->pluck('id')
+            ->toArray();
+
+        if (!empty($temasDestino)) {
+            DB::table('actividades_animaciones')
+                ->whereIn('id_tema', $temasDestino)
+                ->delete();
+        }
+        $this->Restaurar_Autoincremento();
+        // 5. Preparar arrays para seguimiento
+        $transferidos = []; // actividades clonadas exitosamente
+        $noEncontrados = []; // temas que no se encontraron en destino
+
+        foreach ($ActividadesOrigen as $actividad) {
+            $temaOrigen = DB::table('temas')->where('id', $actividad->id_tema)->first();
+            if (!$temaOrigen) {
+                $noEncontrados[] = [
+                    'actividad_id' => $actividad->id_item ?? null,
+                    'razon' => 'Tema origen no encontrado',
+                    'actividad' => $actividad
+                ];
+                continue;
+            }
+
+            // Buscar el tema equivalente en destino
+            $temaDestino = DB::table('temas')
+                ->where('nombre_tema', $temaOrigen->nombre_tema)
+                ->where('unidad', $temaOrigen->unidad)
+                ->where('id_asignatura', $destino["idasignatura"])
+                ->first();
+
+            if (!$temaDestino) {
+                $noEncontrados[] = [
+                    'tema_origen_id' => $temaOrigen->id,
+                    'nombre_tema' => $temaOrigen->nombre_tema,
+                    'unidad' => $temaOrigen->unidad,
+                    'razon' => 'No se encontró el tema con su unidad en la asignatura destino. (Verificar la existencia del tema con el mismo nombre y unidad en la asignatura destino)',
+                ];
+                continue;
+            }
+
+            // Insertar nueva actividad en el tema destino
+            $nuevoId = DB::table('actividades_animaciones')->insertGetId([
+                "id_usuario" => $actividad->id_usuario,
+                "id_tema"    => $temaDestino->id,
+                "tipo"       => $actividad->tipo,
+                "link"       => $actividad->link,
+                "page"       => $actividad->page,
+                "estado"     => $actividad->estado,
+                "created_at" => $actividad->created_at,
+                "updated_at" => $actividad->updated_at,
+            ]);
+
+            $transferidos[] = [
+                'actividad_origen_id' => $actividad->id_item ?? null,
+                'tema_origen_id'      => $temaOrigen->id,
+                'tema_destino_id'     => $temaDestino->id,
+                'nuevo_actividad_id'  => $nuevoId
+            ];
+        }
+
+        // 6. Enriquecer transferidos con nombre_tema destino
+        $transferidosConNombre = [];
+        if (!empty($transferidos)) {
+            $idsTemasDestino = collect($transferidos)->pluck('tema_destino_id')->toArray();
+
+            $temasDestinoInfo = DB::table('temas')
+                ->whereIn('id', $idsTemasDestino)
+                ->pluck('nombre_tema', 'id');
+
+            foreach ($transferidos as $t) {
+                $transferidosConNombre[] = [
+                    'actividad_origen_id' => $t['actividad_origen_id'],
+                    'tema_origen_id'      => $t['tema_origen_id'],
+                    'tema_destino_id'     => $t['tema_destino_id'],
+                    'nuevo_actividad_id'  => $t['nuevo_actividad_id'],
+                    'nombre_tema'         => $temasDestinoInfo[$t['tema_destino_id']] ?? null
+                ];
+            }
+        }
+
+        return response()->json([
+            "status" => 1,
+            "message" => "Transferencia completada",
+            "TemasyUnidadesOrigen" => $TemasyUnidadesOrigen,
+            "ActividadesOrigen" => $ActividadesOrigen,
+            "Transferidos" => $transferidosConNombre,
+            "NoEncontrados" => $noEncontrados
+        ]);
+    }
+
+    private function Restaurar_Autoincremento(){
+        // Reajustar el autoincremento - estas 2 lineas permite reajustar el autoincrementable por defecto
+        $ultimoId  = actividad_animacion::max('id_item') + 1;
+        DB::statement('ALTER TABLE actividades_animaciones AUTO_INCREMENT = ' . $ultimoId);
+    }
+
+    //FIN METODOS JEYSON
 }

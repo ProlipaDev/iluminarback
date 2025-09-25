@@ -17,6 +17,7 @@ class LibroSerie extends Model
         'year',
         'version',
         'boton',
+        'id_libro_plus'
 
     ];
     public static function obtenerProducto($codigo)

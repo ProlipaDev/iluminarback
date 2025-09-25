@@ -2138,7 +2138,6 @@ class VerificacionControllerAnterior extends Controller
 
     public function generateLiquidacionAntes2000($institucion, $periodo, $contrato, $idVerificacionActual, $num_verificacionaActual, $user_created, $id_pedido, $searchComboEtiquetas){
         DB::beginTransaction();  // Iniciar transacción
-
         try {
             //traigo la liquidacion actual por cantidad GRUPAL
             $data = $this->getCodigosGrupalLiquidar($institucion, $periodo);
@@ -2173,13 +2172,11 @@ class VerificacionControllerAnterior extends Controller
                     if (count($arregloRegalados) > 0) {
                         $consultarGuardado[] =  $this->updateCodigoIndividualInicial($traeridVerificacion, $arregloRegalados, $contrato, $traerNumeroVerificacion, $periodo, $institucion, "regalado", $user_created, $searchComboEtiquetas);
                     }
-
                     //Ingresar la liquidacion en la base
                     $this->guardarLiquidacionCodigosDemasiados($data, $traerNumeroVerificacion, $contrato);
 
                     //consultar si todavía existe codigos individuales
                     $codigosFaltante = $this->getCodigosIndividualLiquidarFaltante($institucion, $periodo, $contrato);
-
                     //si no hay códigos faltantes, actualizar el estado de la verificación
                     if (count($codigosFaltante) > 0) {
                         DB::table('verificaciones')
@@ -2506,6 +2503,30 @@ class VerificacionControllerAnterior extends Controller
        if($request->getCombosLiquidadosAnteriores){
             return $this->getCombosLiquidadosAnteriores($request);
        }
+       if($request->getReporteSueltosContratosLiquidadoYNoLiquidados){
+            return $this->getReporteSueltosContratosLiquidadoYNoLiquidados($request);
+       }
+       if($request->getReporteCodigosGeneral){
+            return $this->getReporteCodigosGeneral($request);
+       }
+       if($request->getReporteCodigosSinDocumentos){
+            return $this->getReporteCodigosSinDocumentos($request);
+       }
+       if($request->getReporteCodigosQuitadosDelReporte){
+            return $this->getReporteCodigosQuitadosDelReporte($request);
+       }
+       if($request->getReporteCodigosSinContratos){
+            return $this->getReporteCodigosSinContratos($request);
+       }
+       if($request->getReporteCodigosPorLibroInstitucion){
+            return $this->getReporteCodigosPorLibroInstitucion($request);
+       }
+       if($request->getReporteCodigosPorLibroSinContratos){
+            return $this->getReporteCodigosPorLibroSinContratos($request);
+       }
+       if($request->getCodigosIndividualesReporte){
+            return $this->getCodigosIndividualesReporte($request);
+       }
     }
     // api:get/metodosGetVerificaciones?getVerificaciones=1&id_asesor=4179&pendientesNot=1&soloLongitud=1
     public function getVerificaciones($request){
@@ -2719,6 +2740,7 @@ class VerificacionControllerAnterior extends Controller
                 AND c.contrato IS NOT NULL
                 AND TRIM(c.contrato) != ''  -- Contrato no vacío
                 AND c.contrato != '0'  -- Contrato no igual a 0
+                AND c.estado_liquidacion <> '4' -- Excluir códigos guias
             GROUP BY
                 i.nombreInstitucion, c.contrato, l.nombrelibro, ls.codigo_liquidacion, c.bc_institucion  -- Agrupamos por institución, contrato, libro y precio
             ORDER BY
@@ -2817,6 +2839,592 @@ class VerificacionControllerAnterior extends Controller
         //     "getLibros" => $getLibros
         // ];
     }
+
+    //api:get/metodosGetVerificaciones?getReporteSueltosContratosLiquidadoYNoLiquidados=1&id_periodo=23
+
+
+    public function getReporteSueltosContratosLiquidadoYNoLiquidados($request){
+        $id_periodo = $request->input("id_periodo", 0);
+        $periodoPrecio = $id_periodo; // periodo para sacar el precio de los libros
+
+        // 🔹 Traer todos los contratos de todos los asesores de una sola vez, con nombre del asesor
+        $contratos = DB::SELECT("
+            SELECT
+                p.id_asesor,
+                CONCAT(u.nombres,' ',u.apellidos) AS nombre_asesor,
+                p.contrato_generado AS contrato,
+                COALESCE(SUM(c.cantidad_libro), 0) AS cantidad,
+                COALESCE(SUM(f.pfn_pvp * c.cantidad_libro), 0) AS total,
+                p.estadoPedido_Pagos as estadoPedido
+            FROM pedidos p
+            LEFT JOIN usuario u ON u.idusuario = p.id_asesor
+            LEFT JOIN (
+                SELECT
+                    contrato,
+                    libro_idlibro,
+                    COUNT(*) AS cantidad_libro
+                FROM codigoslibros
+                WHERE bc_periodo = ?
+                AND prueba_diagnostica = '0'
+                AND estado_liquidacion <> '3'
+                AND contrato IS NOT NULL
+                AND estado_liquidacion <> '4' -- Excluir códigos guias
+                GROUP BY contrato, libro_idlibro
+            ) c ON c.contrato = p.contrato_generado
+            LEFT JOIN pedidos_formato_new f
+                ON f.idlibro = c.libro_idlibro
+            AND f.idperiodoescolar = ?
+            WHERE p.estado = '1'
+            AND p.id_periodo = ?
+            AND p.contrato_generado IS NOT NULL
+            GROUP BY p.id_asesor, u.nombres, p.contrato_generado
+            ORDER BY p.id_asesor, p.contrato_generado
+        ", [
+            $id_periodo,     // para codigoslibros
+            $periodoPrecio,  // para pedidos_formato_new
+            $id_periodo      // para pedidos
+        ]);
+
+        // 🔹 Traer SIN CONTRATO una sola vez
+        $sinContrato = DB::SELECTOne("
+            SELECT
+                'SIN CONTRATO' AS contrato,
+                COUNT(*) AS cantidad,
+                SUM(f.pfn_pvp) AS total
+            FROM codigoslibros c
+            LEFT JOIN pedidos_formato_new f
+                ON f.idlibro = c.libro_idlibro
+            AND f.idperiodoescolar = ?
+            WHERE (c.contrato IS NULL OR c.contrato = '' OR c.contrato = '0')
+            AND c.bc_periodo = ?
+            AND c.prueba_diagnostica = '0'
+            AND c.estado_liquidacion <> '3'
+        ", [
+            $periodoPrecio,
+            $id_periodo
+        ]);
+
+        // 🔹 Agrupar contratos por asesor en un array de objetos
+        $asesores = [];
+        foreach($contratos as $row){
+            // Buscar si ya existe el asesor en el array
+            $foundIndex = null;
+            foreach($asesores as $index => $a){
+                if($a['id_asesor'] == $row->id_asesor){
+                    $foundIndex = $index;
+                    break;
+                }
+            }
+
+            if($foundIndex === null){
+                // No existe aún, lo agregamos
+                $asesores[] = [
+                    'id_asesor' => $row->id_asesor,
+                    'nombre' => $row->nombre_asesor,
+                    'contratos' => [
+                        [
+                            'contrato' => $row->contrato,
+                            'estadoPedido' => $row->estadoPedido,
+                            'cantidad' => $row->cantidad,
+                            'total' => $row->total
+                        ]
+                    ]
+                ];
+            } else {
+                // Ya existe, agregamos contrato al array
+                $asesores[$foundIndex]['contratos'][] = [
+                    'contrato' => $row->contrato,
+                    'estadoPedido' => $row->estadoPedido,
+                    'cantidad' => $row->cantidad,
+                    'total' => $row->total
+                ];
+            }
+        }
+
+        return [
+            'asesores' => $asesores,
+            'sin_contrato' => $sinContrato
+        ];
+    }
+    //api:get/metodosGetVerificaciones?getReporteCodigosGeneral=1&id_periodo=25&normales=0
+    public function getReporteCodigosGeneral($request)
+    {
+        $id_periodo = $request->input("id_periodo", 0);
+        $normales   = $request->input("normales", 0); // 0 regalados, 1 normales
+
+        // Condición dinámica
+        if ($normales == 1) {
+            $condicionEstado = "AND c.estado_liquidacion <> '2' AND c.estado_liquidacion <> '3'";
+        } else {
+            $condicionEstado = "AND c.estado_liquidacion = '2'";
+        }
+
+        $query = DB::select("
+            SELECT
+                -- 0. Todos los códigos regalados del periodo
+                COUNT(*) AS codigos_totales_regalados,
+
+                -- 1. Códigos con contrato y pedido activo (no quitados)
+                SUM(CASE
+                        WHEN c.contrato IS NOT NULL
+                        AND c.contrato != ''
+                        AND c.contrato != '0'
+                        AND (c.quitar_de_reporte IS NULL OR c.quitar_de_reporte = '0')
+                        AND (p.estado = '1' OR p.id_asesor IS NULL)
+                    THEN 1 ELSE 0 END) AS codigos_con_contrato,
+
+                -- 2. Códigos sin contrato (no quitados)
+                SUM(CASE
+                        WHEN (c.contrato IS NULL OR c.contrato = '' OR c.contrato = '0')
+                        AND (c.quitar_de_reporte IS NULL OR c.quitar_de_reporte = '0')
+                    THEN 1 ELSE 0 END) AS codigos_sin_contrato,
+
+                -- 3. Códigos con documentos (no quitados, solo pedidos activos)
+                SUM(CASE
+                        WHEN c.codigo_proforma IS NOT NULL
+                        AND (c.quitar_de_reporte IS NULL OR c.quitar_de_reporte = '0')
+                        AND (c.contrato IS NULL OR c.contrato = '' OR c.contrato = '0')
+                    THEN 1 ELSE 0 END) AS codigos_con_documentos,
+
+                -- 4. Códigos sin documentos (no quitados, solo pedidos activos)
+                SUM(CASE
+                        WHEN c.codigo_proforma IS NULL
+                        AND (c.quitar_de_reporte IS NULL OR c.quitar_de_reporte = '0')
+                        AND (c.contrato IS NULL OR c.contrato = '' OR c.contrato = '0')
+                    THEN 1 ELSE 0 END) AS codigos_sin_documentos,
+
+                -- 5. Códigos quitados del reporte
+                SUM(CASE
+                        WHEN c.quitar_de_reporte = '1'
+                    THEN 1 ELSE 0 END) AS codigos_quitados_reporte
+
+            FROM codigoslibros c
+            LEFT JOIN pedidos p
+                ON p.contrato_generado = c.contrato
+            WHERE c.bc_periodo = ?
+            $condicionEstado
+            AND c.prueba_diagnostica = '0'
+            AND c.estado_liquidacion <> '4' -- Excluir códigos guias
+        ", [$id_periodo]);
+
+        return $query;
+    }
+
+    //api:get/metodosGetVerificaciones?getReporteCodigosSinDocumentos=1&id_periodo=25&normales=0&contratos=0&documento=0
+    public function getReporteCodigosSinDocumentos($request)
+    {
+        $id_periodo = $request->input("id_periodo", 0);
+        $normales   = $request->input("normales", 0);   // 0 regalados, 1 normales
+        $contratos  = $request->input("contratos", 0);  // 0 sin contratos, 1 con contratos
+        $documento  = $request->input("documento", 0); // 0 sin documentos, 1 con documentos
+
+        // Condición dinámica para estado
+        if ($normales == 1) {
+            $condicionEstado = "AND c.estado_liquidacion <> '2' AND c.estado_liquidacion <> '3'";
+        } else {
+            $condicionEstado = "AND c.estado_liquidacion = '2'";
+        }
+
+        // Condición dinámica para contratos
+        if ($contratos == 1) {
+            $condicionContrato = "AND c.contrato IS NOT NULL AND c.contrato != '' AND c.contrato != '0'";
+        } else {
+            $condicionContrato = "AND (c.contrato IS NULL OR c.contrato = '' OR c.contrato = '0')";
+        }
+        // Condición dinámica para documentos
+        if ($documento == 1) {
+            $condicionDocumento = "AND c.codigo_proforma IS NOT NULL";
+        } else {
+            $condicionDocumento = "AND c.codigo_proforma IS NULL";
+        }
+        $query = DB::select("
+            SELECT
+                -- Mantener el id de institución según el estado de venta
+                CASE
+                    WHEN c.venta_estado = 2 THEN i2.idInstitucion
+                    ELSE i.idInstitucion
+                END AS id_institucion,
+
+                -- Nombre de la institución según estado de venta
+                CASE
+                    WHEN c.venta_estado = 2 THEN i2.nombreInstitucion
+                    ELSE i.nombreInstitucion
+                END AS institucion,
+
+                -- Venta estado del código
+                c.venta_estado,
+
+                COUNT(c.codigo) AS cantidad_codigos,
+                ROUND(SUM(COALESCE(pr.pfn_pvp, 0)), 2) AS total_monto
+            FROM codigoslibros c
+            LEFT JOIN pedidos p
+                ON p.contrato_generado = c.contrato
+            LEFT JOIN pedidos_formato_new pr
+                ON pr.idlibro = c.libro_idlibro
+            LEFT JOIN institucion i
+                ON i.idInstitucion = c.bc_institucion
+            LEFT JOIN institucion i2
+                ON i2.idInstitucion = c.venta_lista_institucion
+            WHERE c.prueba_diagnostica = '0'
+            AND c.bc_periodo = ?
+            $condicionEstado
+            $condicionContrato
+            AND pr.idperiodoescolar = ?
+            $condicionDocumento
+            AND (c.quitar_de_reporte IS NULL OR c.quitar_de_reporte = '0')
+            AND c.estado_liquidacion <> '4' -- Excluir códigos guias
+            GROUP BY id_institucion, institucion, c.venta_estado
+            ORDER BY institucion
+        ", [$id_periodo, $id_periodo]);
+
+        return $query;
+    }
+
+    //api:get/metodosGetVerificaciones?getReporteCodigosQuitadosDelReporte=1&id_periodo=25
+    public function getReporteCodigosQuitadosDelReporte($request)
+    {
+        $id_periodo = $request->input("id_periodo", 0);
+        $normales   = $request->input("normales", 0); // 0 regalados, 1 normales
+
+        // Condición dinámica
+        if ($normales == 1) {
+            $condicionEstado = "AND c.estado_liquidacion <> '2' AND c.estado_liquidacion <> '3'";
+        } else {
+            $condicionEstado = "AND c.estado_liquidacion = '2'";
+        }
+
+        $query = DB::select("
+            SELECT
+                -- Id de institución según venta_estado
+                CASE
+                    WHEN c.venta_estado = 2 THEN i2.idInstitucion
+                    ELSE i.idInstitucion
+                END AS id_institucion,
+
+                -- Nombre de institución según venta_estado
+                CASE
+                    WHEN c.venta_estado = 2 THEN i2.nombreInstitucion
+                    ELSE i.nombreInstitucion
+                END AS institucion,
+
+                -- Venta estado
+                c.venta_estado,
+
+                COUNT(c.codigo) AS cantidad_codigos,
+                ROUND(SUM(COALESCE(pr.pfn_pvp, 0)), 2) AS total_monto
+            FROM codigoslibros c
+            LEFT JOIN pedidos p
+                ON p.contrato_generado = c.contrato
+            LEFT JOIN pedidos_formato_new pr
+                ON pr.idlibro = c.libro_idlibro
+            LEFT JOIN institucion i
+                ON i.idInstitucion = c.bc_institucion
+            LEFT JOIN institucion i2
+                ON i2.idInstitucion = c.venta_lista_institucion
+            WHERE c.contrato IS NOT NULL
+            AND c.contrato != ''
+            AND c.contrato != '0'
+            AND c.prueba_diagnostica = '0'
+            AND c.bc_periodo = ?
+            $condicionEstado
+            AND pr.idperiodoescolar = ?
+            AND c.quitar_de_reporte = '1'
+            AND c.estado_liquidacion <> '4' -- Excluir códigos guias
+            GROUP BY id_institucion, institucion, c.venta_estado
+            ORDER BY institucion
+        ", [$id_periodo, $id_periodo]);
+
+        return $query;
+    }
+
+
+    //api:get/metodosGetVerificaciones?getReporteCodigosSinContratos=1&id_periodo=25
+    public function getReporteCodigosSinContratos($request)
+    {
+        $id_periodo = $request->input("id_periodo", 0);
+        $normales   = $request->input("normales", 0); // 0 = regalados, 1 = normales
+
+        // Condición dinámica según "normales"
+        if ($normales == 1) {
+            $condicionEstado = "AND c.estado_liquidacion <> '2' AND c.estado_liquidacion <> '3'";
+        } else {
+            $condicionEstado = "AND c.estado_liquidacion = '2'";
+        }
+
+        $query = DB::select("
+            SELECT
+                -- Id de institución según venta_estado
+                CASE
+                    WHEN c.venta_estado = 2 THEN i2.idInstitucion
+                    ELSE i.idInstitucion
+                END AS id_institucion,
+
+                -- Nombre de institución según venta_estado
+                CASE
+                    WHEN c.venta_estado = 2 THEN i2.nombreInstitucion
+                    ELSE i.nombreInstitucion
+                END AS institucion,
+
+                -- Venta estado
+                c.venta_estado,
+
+                COUNT(c.codigo) AS cantidad_codigos,
+                ROUND(SUM(COALESCE(pr.pfn_pvp, 0)), 2) AS total_monto
+            FROM codigoslibros c
+            LEFT JOIN pedidos_formato_new pr
+                ON pr.idlibro = c.libro_idlibro
+                AND pr.idperiodoescolar = ?
+            LEFT JOIN institucion i
+                ON i.idInstitucion = c.bc_institucion
+            LEFT JOIN institucion i2
+                ON i2.idInstitucion = c.venta_lista_institucion
+            WHERE (c.contrato IS NULL OR c.contrato = '' OR c.contrato = '0')
+            AND c.prueba_diagnostica = '0'
+            AND c.bc_periodo = ?
+            $condicionEstado
+            AND (c.quitar_de_reporte IS NULL OR c.quitar_de_reporte = '0')
+            AND c.estado_liquidacion <> '4' -- Excluir códigos guias
+            GROUP BY id_institucion, institucion, c.venta_estado
+            ORDER BY institucion
+        ", [$id_periodo, $id_periodo]);
+
+        return $query;
+    }
+
+    //api:get/metodosGetVerificaciones?getReporteCodigosPorLibroInstitucion=1&id_periodo=25&institucion=581&documentos=0&quitar_reporte=0&venta_estado=1
+    public function getReporteCodigosPorLibroInstitucion($request)
+    {
+        $id_periodo     = $request->input("id_periodo", 0);
+        $institucion    = $request->input("institucion", 0); // idInstitucion
+        $documentos     = $request->input("documentos", 0); // 1 con documentos, 0 sin documentos, 2 todos
+        $quitar_reporte = $request->input("quitar_reporte", 0); // 1 quitados, 0 no quitados
+        $venta_estado   = $request->input("venta_estado", 0); // 2 = lista; 0 o 1 = directa
+        $contratos      = $request->input("contratos", 1); // 1 con contrato, 0 sin contrato
+        $normales       = $request->input("normales", 0); // 0 regalados, 1 normales
+        $sin_institucion = $request->input("sin_institucion", 0); // 1 para ignorar institución (todas)
+
+        // documentos: 1 = con doc, 0 = sin doc, 2 = todos
+        if ($documentos == 1) {
+            $condicionDocumentos = "AND c.codigo_proforma IS NOT NULL AND c.codigo_proforma != ''";
+        } elseif ($documentos == 0) {
+            $condicionDocumentos = "AND (c.codigo_proforma IS NULL OR c.codigo_proforma = '')";
+        } else {
+            $condicionDocumentos = "";
+        }
+
+        // quitar de reporte
+        $condicionQuitarReporte = $quitar_reporte == 1
+            ? "AND c.quitar_de_reporte = '1'"
+            : "AND (c.quitar_de_reporte IS NULL OR c.quitar_de_reporte = '0')";
+
+          // Condición dinámica para institución según venta_estado
+        if($sin_institucion == 1){
+            if($venta_estado == 1 || $venta_estado == 0){
+                $condicionInstitucion = "AND (c.bc_institucion IS NULL OR c.bc_institucion = '' OR c.bc_institucion = '0') AND c.venta_lista_institucion = '0'";
+            }else{
+                $condicionInstitucion = "AND (c.venta_lista_institucion IS NULL OR c.venta_lista_institucion = '' OR c.venta_lista_institucion = '0')  AND c.bc_institucion = '0'";
+            }
+        }else{
+            // institución según venta_estado
+            $condicionInstitucion = $venta_estado == 2
+                ? "AND c.venta_lista_institucion = '$institucion'"
+                : "AND c.bc_institucion = '$institucion'";
+        }
+
+        // contratos: si 1 -> queremos códigos con contrato, si 0 -> sin contrato
+        if ($contratos == 1) {
+            $condicionContrato = "AND c.contrato IS NOT NULL AND c.contrato != '' AND c.contrato != '0'";
+            // Para garantizar que exista un pedido activo con ese contrato usamos INNER JOIN en pedidos
+            $joinPedidos = "INNER JOIN pedidos p ON p.contrato_generado = c.contrato AND p.estado = '1'";
+            // no añadimos WHERE sobre p.estado (ya en el JOIN)
+        } else {
+            $condicionContrato = "AND (c.contrato IS NULL OR c.contrato = '' OR c.contrato = '0')";
+            // Si buscamos códigos SIN contrato, hacemos LEFT JOIN (y filtramos por p.estado en la unión para no eliminar filas sin pedido)
+            $joinPedidos = "LEFT JOIN pedidos p ON p.contrato_generado = c.contrato AND p.estado = '1'";
+        }
+
+        // normales/regalados
+        if ($normales == 1) {
+            $condicionEstado = "AND c.estado_liquidacion <> '2' AND c.estado_liquidacion <> '3'";
+        } else {
+            $condicionEstado = "AND c.estado_liquidacion = '2'";
+        }
+
+        $query = DB::SELECT("
+            SELECT
+                ls.codigo_liquidacion,
+                ls.nombre AS nombrelibro,
+                c.factura,
+                c.venta_estado,
+                COUNT(c.codigo) AS cantidad
+            FROM codigoslibros c
+            $joinPedidos
+            LEFT JOIN libros_series ls ON ls.idLibro = c.libro_idlibro
+            WHERE c.bc_periodo = '$id_periodo'
+            AND c.prueba_diagnostica = '0'
+            $condicionDocumentos
+            $condicionQuitarReporte
+            $condicionEstado
+            $condicionInstitucion
+            $condicionContrato
+            AND c.estado_liquidacion <> '4' -- Excluir códigos guias
+            GROUP BY
+                ls.codigo_liquidacion,
+                ls.nombre,
+                c.factura,
+                c.venta_estado
+            ORDER BY
+                ls.codigo_liquidacion, ls.nombre;
+        ");
+        return $query;
+    }
+
+
+
+    //api:get/metodosGetVerificaciones?getReporteCodigosPorLibroSinContratos=1&id_periodo=25&institucion=1734&venta_estado=1
+    public function getReporteCodigosPorLibroSinContratos($request)
+    {
+        $id_periodo   = $request->input("id_periodo", 0);
+        $institucion  = $request->input("institucion", 0); // idInstitucion
+        $venta_estado = $request->input("venta_estado", 0); // 2 = lista; 0 o 1 = directa
+        $normales     = $request->input("normales", 0); // 0 regalados, 1 normales
+        $sin_institucion = $request->input("sin_institucion", 0); // 1 para ignorar institución (todas)
+
+         // Condición dinámica para institución según venta_estado
+        if($sin_institucion == 1){
+            if($venta_estado == 1 || $venta_estado == 0){
+                $condicionInstitucion = "AND (c.bc_institucion IS NULL OR c.bc_institucion = '' OR c.bc_institucion = '0') AND c.venta_lista_institucion = '0'";
+            }else{
+                $condicionInstitucion = "AND (c.venta_lista_institucion IS NULL OR c.venta_lista_institucion = '' OR c.venta_lista_institucion = '0')  AND c.bc_institucion = '0'";
+            }
+        }else{
+            // institución según venta_estado
+            $condicionInstitucion = $venta_estado == 2
+                ? "AND c.venta_lista_institucion = '$institucion'"
+                : "AND c.bc_institucion = '$institucion'";
+        }
+
+        // Condición dinámica para estado_liquidacion según normales/regalados
+        if ($normales == 1) {
+            $condicionEstado = "AND c.estado_liquidacion <> '2' AND c.estado_liquidacion <> '3'";
+        } else {
+            $condicionEstado = "AND c.estado_liquidacion = '2'";
+        }
+
+        $query = DB::SELECT("
+            SELECT
+                ls.codigo_liquidacion,
+                ls.nombre AS nombrelibro,
+                c.factura,
+                c.venta_estado,
+                COUNT(c.codigo) AS cantidad
+            FROM codigoslibros c
+            LEFT JOIN libros_series ls
+                ON ls.idLibro = c.libro_idlibro
+            WHERE c.bc_periodo = '$id_periodo'
+            AND c.prueba_diagnostica = '0'
+            AND (c.quitar_de_reporte IS NULL OR c.quitar_de_reporte = '0')
+            $condicionEstado
+            AND (c.contrato IS NULL OR c.contrato = '' OR c.contrato = '0')
+            $condicionInstitucion
+            AND c.estado_liquidacion <> '4' -- Excluir códigos guias
+            GROUP BY
+                ls.codigo_liquidacion,
+                ls.nombre,
+                c.factura,
+                c.venta_estado
+            ORDER BY
+                ls.codigo_liquidacion, ls.nombre;
+        ");
+
+        return $query;
+    }
+
+    //api:get/metodosGetVerificaciones?getCodigosIndividualesReporte=1&id_periodo=25&institucion=1734&venta_estado=1&documentos=0&quitar_reporte=0&contratos=0&normales=1
+    public function getCodigosIndividualesReporte($request)
+    {
+        $id_periodo     = $request->input("id_periodo", 0);
+        $institucion    = $request->input("institucion", 0); // idInstitucion
+        $venta_estado   = $request->input("venta_estado", 0); // 2 = lista; 0 o 1 = directa
+        $documentos     = $request->input("documentos", 0); // 1 con documentos, 0 sin documentos, 2 todos
+        $quitar_reporte = $request->input("quitar_reporte", 0); // 1 quitados, 0 no quitados
+        $contratos      = $request->input("contratos", 1); // 1 con contrato, 0 sin contrato
+        $normales       = $request->input("normales", 0); // 0 regalados, 1 normales
+        $sin_institucion = $request->input("sin_institucion", 0); // 1 sin institución, 0 con institución
+
+          // documentos: 1 = con doc, 0 = sin doc, 2 = todos
+        if ($documentos == 1) {
+            $condicionDocumentos = "AND c.codigo_proforma IS NOT NULL AND c.codigo_proforma != ''";
+        } elseif ($documentos == 0) {
+            $condicionDocumentos = "AND (c.codigo_proforma IS NULL OR c.codigo_proforma = '')";
+        } else {
+            $condicionDocumentos = "";
+        }
+
+         // quitar de reporte
+        $condicionQuitarReporte = $quitar_reporte == 1
+            ? "AND c.quitar_de_reporte = '1'"
+            : "AND (c.quitar_de_reporte IS NULL OR c.quitar_de_reporte = '0')";
+
+         // normales/regalados
+        if ($normales == 1) {
+            $condicionEstado = "AND c.estado_liquidacion <> '2' AND c.estado_liquidacion <> '3'";
+        } else {
+            $condicionEstado = "AND c.estado_liquidacion = '2'";
+        }
+
+        // Condición dinámica para institución según venta_estado
+        if($sin_institucion == 1){
+            if($venta_estado == 1 || $venta_estado == 0){
+                $condicionInstitucion = "AND (c.bc_institucion IS NULL OR c.bc_institucion = '' OR c.bc_institucion = '0') AND c.venta_lista_institucion = '0'";
+            }else{
+                $condicionInstitucion = "AND (c.venta_lista_institucion IS NULL OR c.venta_lista_institucion = '' OR c.venta_lista_institucion = '0')  AND c.bc_institucion = '0'";
+            }
+        }else{
+            // institución según venta_estado
+            $condicionInstitucion = $venta_estado == 2
+                ? "AND c.venta_lista_institucion = '$institucion'"
+                : "AND c.bc_institucion = '$institucion'";
+        }
+
+        $joinPedidos = "";
+        // contratos: si 1 -> queremos códigos con contrato, si 0 -> sin contrato
+        if ($contratos == 1) {
+            $condicionContrato = "AND c.contrato IS NOT NULL AND c.contrato != '' AND c.contrato != '0'";
+            // Para garantizar que exista un pedido activo con ese contrato usamos INNER JOIN en pedidos
+            $joinPedidos = "INNER JOIN pedidos p ON p.contrato_generado = c.contrato AND p.estado = '1'";
+            // no añadimos WHERE sobre p.estado (ya en el JOIN)
+        } else {
+            $condicionContrato = "AND (c.contrato IS NULL OR c.contrato = '' OR c.contrato = '0')";
+            // Si buscamos códigos SIN contrato, hacemos LEFT JOIN (y filtramos por p.estado en la unión para no eliminar filas sin pedido)
+            // $joinPedidos = "LEFT JOIN pedidos p ON p.contrato_generado = c.contrato AND p.estado = '1'";
+        }
+
+        $query = DB::SELECT(" SELECT c.codigo, c.codigo_proforma, c.proforma_empresa, c.estado_liquidacion,
+            c.contrato, ls.codigo_liquidacion, ls.nombre AS nombrelibro, c.factura,
+            CASE
+                WHEN c.proforma_empresa IS NULL OR c.proforma_empresa = '' THEN 'SIN EMPRESA'
+                WHEN c.proforma_empresa = '1' THEN 'PROLIPA'
+                WHEN c.proforma_empresa = '3' THEN 'CALMED'
+                ELSE 'OTRA'
+            END AS empresa_documento,
+            c.venta_estado
+            FROM codigoslibros c
+
+            $joinPedidos
+            LEFT JOIN libros_series ls ON ls.idLibro = c.libro_idlibro
+            WHERE c.bc_periodo = '$id_periodo'
+            AND c.prueba_diagnostica = '0'
+            $condicionInstitucion
+            $condicionQuitarReporte
+            $condicionEstado
+            $condicionDocumentos
+            $condicionContrato
+            AND c.estado_liquidacion <> '4' -- Excluir códigos guias
+        ");
+        return $query;
+    }
+
 
     //api:post/metodosPostVerificaciones
     public function metodosPostVerificaciones(Request $request){

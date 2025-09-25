@@ -28,6 +28,7 @@ use App\Repositories\Facturacion\ProformaRepository;
 use App\Repositories\pedidos\NotificacionRepository;
 use App\Repositories\pedidos\PedidosRepository;
 use App\Repositories\pedidos\VerificacionRepository;
+use App\Repositories\Facturacion\VentaRepository;
 use App\Traits\Codigos\TraitCodigosGeneral;
 use App\Traits\Pedidos\TraitGuiasGeneral;
 use App\Traits\Pedidos\TraitPedidosGeneral;
@@ -46,14 +47,16 @@ class CodigoLibrosController extends Controller
     protected $devolucionRepository;
     protected $verificacionRepository;
     protected $NotificacionRepository;
+    protected $ventasRepository;
 
-    public function __construct(CodigosRepository $codigosRepository,ProformaRepository $proformaRepository, PedidosRepository $pedidosRepository, DevolucionRepository $devolucionRepository, VerificacionRepository $verificacionRepository, NotificacionRepository $NotificacionRepository) {
+    public function __construct(CodigosRepository $codigosRepository,ProformaRepository $proformaRepository, PedidosRepository $pedidosRepository, DevolucionRepository $devolucionRepository, VerificacionRepository $verificacionRepository, NotificacionRepository $NotificacionRepository, VentaRepository $ventasRepository) {
         $this->codigosRepository    = $codigosRepository;
         $this->proformaRepository   = $proformaRepository;
         $this->pedidosRepository    = $pedidosRepository;
         $this->devolucionRepository = $devolucionRepository;
         $this->verificacionRepository = $verificacionRepository;
         $this->NotificacionRepository = $NotificacionRepository;
+        $this->ventasRepository = $ventasRepository;
     }
     //api:post//codigos/importar
     public function importar(Request $request){
@@ -4432,63 +4435,260 @@ private function agruparPorCodigoPrimerValor($arrayOldValues) {
     }
 
     //api:get/metodosGetCodigos?getReporteCombosDespachados=1&periodo=27
-    public function getReporteCombosDespachados($request){
-        $periodo = $request->periodo;
-        $combos  = $this->codigosRepository->reporteCombos($periodo);
+    // public function getReporteCombosDespachados($request){
+    //     $periodo = $request->periodo;
+    //     $tipoInstitucionIncluir = $request->tipoInstitucionIncluir;
+    //     $combos  = $this->codigosRepository->reporteCombos($periodo,$tipoInstitucionIncluir);
+    //     $codigosDespachos = DB::SELECT("
+    //         SELECT codigo, codigo_combo, combo
+    //         FROM codigoslibros c
+    //         WHERE c.bc_periodo = ?
+    //         AND c.prueba_diagnostica = '0'
+    //         AND c.estado_liquidacion IN ('0','1','2')
+    //         AND c.codigo_combo IS NOT NULL
+    //         AND c.combo IS NOT NULL
+    //     ", [$periodo]);
 
-        $codigosDespachos = DB::SELECT("
-            SELECT codigo, codigo_combo, combo
-            FROM codigoslibros c
-            WHERE c.bc_periodo = ?
-            AND c.prueba_diagnostica = '0'
-            AND c.estado_liquidacion IN ('0','1','2')
-            AND c.codigo_combo IS NOT NULL
-            AND c.combo IS NOT NULL
-        ", [$periodo]);
+    //     $result = [];
 
-        $result = [];
+    //     foreach ($combos as $combo) {
+    //         $agrupado = collect($codigosDespachos)
+    //             ->where('combo', $combo->codigo)
+    //             ->groupBy('combo')
+    //             ->map(function ($items) {
+    //                 $etiquetas = collect($items)
+    //                     ->groupBy('codigo_combo')
+    //                     ->map(function ($etqs, $codigo_combo) {
+    //                         return [
+    //                             'codigo_combo' => $codigo_combo,
+    //                             'cantidad' => count($etqs)
+    //                         ];
+    //                     })->values();
+    //                 return ['etiquetas' => $etiquetas];
+    //             })->first();
 
-        foreach ($combos as $combo) {
-            $agrupado = collect($codigosDespachos)
-                ->where('combo', $combo->codigo)
-                ->groupBy('combo')
-                ->map(function ($items) {
-                    $etiquetas = collect($items)
-                        ->groupBy('codigo_combo')
-                        ->map(function ($etqs, $codigo_combo) {
-                            return [
-                                'codigo_combo' => $codigo_combo,
-                                'cantidad' => count($etqs)
-                            ];
-                        })->values();
-                    return ['etiquetas' => $etiquetas];
-                })->first();
+    //         $comboArr = (array)$combo;
+    //         $comboArr['agrupado'] = $agrupado ? $agrupado['etiquetas'] : [];
+    //         $result[] = $comboArr;
+    //     }
 
-            $comboArr = (array)$combo;
-            $comboArr['agrupado'] = $agrupado ? $agrupado['etiquetas'] : [];
-            $result[] = $comboArr;
-        }
+    //     $result = collect($result)
+    //         ->map(function($item) {
+    //             $error = false;
+    //             foreach ($item['agrupado'] as $combo) {
+    //                 if ($combo['cantidad'] != $item['codigosPorCombo']) {
+    //                     $error = true;
+    //                     break;
+    //                 }
+    //             }
+    //             $item['ifErrorCombo'] = $error ? 1 : 0;
+    //             return $item;
+    //         })
+    //         ->groupBy('nombrelibro')
+    //         ->sortKeys()
+    //         ->flatten(1)
+    //         ->values()
+    //         ->toArray();
 
-        $result = collect($result)
-            ->map(function($item) {
-                $error = false;
-                foreach ($item['agrupado'] as $combo) {
-                    if ($combo['cantidad'] != $item['codigosPorCombo']) {
-                        $error = true;
-                        break;
-                    }
-                }
-                $item['ifErrorCombo'] = $error ? 1 : 0;
-                return $item;
-            })
-            ->groupBy('nombrelibro')
-            ->sortKeys()
-            ->flatten(1)
-            ->values()
-            ->toArray();
+    //     return $result;
+    // }
 
-        return $result;
+    // public function getReporteCombosDespachados($request)
+    // {
+    //     $periodo = $request->periodo;
+    //     $tipoInstitucionIncluir = $request->tipoInstitucionIncluir;
+
+    //     $combos = $this->codigosRepository->reporteCombosDinamica($periodo, $tipoInstitucionIncluir);
+
+    //     // Construir condición dinámica para instituciones
+    //     $condicion = "";
+    //     if (!empty($tipoInstitucionIncluir)) {
+    //         $condicion = "AND (
+    //             (c.venta_estado = 2 AND il.tipo_institucion IN ($tipoInstitucionIncluir))
+    //             OR (c.venta_estado = 1 AND iv.tipo_institucion IN ($tipoInstitucionIncluir))
+    //         )";
+    //     }
+
+    //     $codigosDespachos = DB::select("
+    //         SELECT c.codigo, c.codigo_combo, c.combo
+    //         FROM codigoslibros c
+    //         LEFT JOIN institucion il ON il.idInstitucion = c.venta_lista_institucion
+    //         LEFT JOIN institucion iv ON iv.idInstitucion = c.bc_institucion
+    //         WHERE c.bc_periodo = ?
+    //         AND c.prueba_diagnostica = '0'
+    //         AND c.estado_liquidacion IN ('0','1','2')
+    //         AND c.codigo_combo IS NOT NULL
+    //         AND c.combo IS NOT NULL
+    //         $condicion
+    //     ", [$periodo]);
+
+    //     $result = [];
+
+    //     foreach ($combos as $combo) {
+    //         $agrupado = collect($codigosDespachos)
+    //             ->where('combo', $combo->codigo)
+    //             ->groupBy('combo')
+    //             ->map(function ($items) {
+    //                 $etiquetas = collect($items)
+    //                     ->groupBy('codigo_combo')
+    //                     ->map(function ($etqs, $codigo_combo) {
+    //                         return [
+    //                             'codigo_combo' => $codigo_combo,
+    //                             'cantidad' => count($etqs)
+    //                         ];
+    //                     })->values();
+    //                 return ['etiquetas' => $etiquetas];
+    //             })->first();
+
+    //         $comboArr = (array)$combo;
+    //         $comboArr['agrupado'] = $agrupado ? $agrupado['etiquetas'] : [];
+    //         $result[] = $comboArr;
+    //     }
+
+    //     $result = collect($result)
+    //         ->map(function($item) {
+    //             $error = false;
+    //             foreach ($item['agrupado'] as $combo) {
+    //                 if ($combo['cantidad'] != $item['codigosPorCombo']) {
+    //                     $error = true;
+    //                     break;
+    //                 }
+    //             }
+    //             $item['ifErrorCombo'] = $error ? 1 : 0;
+    //             return $item;
+    //         })
+    //         ->groupBy('nombrelibro')
+    //         ->sortKeys()
+    //         ->flatten(1)
+    //         ->values()
+    //         ->toArray();
+
+    //     return $result;
+    // }
+
+   public function getReporteCombosDespachados($request)
+{
+    $periodo = $request->periodo;
+    $setTipoVenta = [1, 2]; // VENTA DIRECTA Y LISTA
+    $tipoInstitucionIncluir = $request->tipoInstitucionIncluir;
+
+    // Si el periodo es menor o igual al configurado -> usa pedidos viejos
+    $nuevo = ($periodo <= $this->tr_periodoPedido) ? 0 : 1;
+
+    // Obtener combos base
+    $combos = $this->codigosRepository->reporteCombosDinamica($periodo, $tipoInstitucionIncluir);
+
+    // Condición dinámica para instituciones
+    $condicion = "";
+    if (!empty($tipoInstitucionIncluir)) {
+        $condicion = "AND (
+            (c.venta_estado = 2 AND il.tipo_institucion IN ($tipoInstitucionIncluir))
+            OR (c.venta_estado = 1 AND iv.tipo_institucion IN ($tipoInstitucionIncluir))
+        )";
     }
+
+    // Despachos desde codigoslibros
+    $codigosDespachos = DB::select("
+        SELECT c.codigo, c.codigo_combo, c.combo
+        FROM codigoslibros c
+        LEFT JOIN institucion il ON il.idInstitucion = c.venta_lista_institucion
+        LEFT JOIN institucion iv ON iv.idInstitucion = c.bc_institucion
+        WHERE c.bc_periodo = ?
+        AND c.prueba_diagnostica = '0'
+        AND c.estado_liquidacion IN ('0','1','2')
+        AND c.codigo_combo IS NOT NULL
+        AND c.combo IS NOT NULL
+        $condicion
+    ", [$periodo]);
+
+    // Pedidos (viejo o nuevo según $nuevo)
+    if ($nuevo == 0) {
+        $arrayPedidos = $this->ventasRepository->getProductosPedidos($periodo, $setTipoVenta);
+    } else {
+        $arrayPedidos = $this->ventasRepository->getProdutosPedidosNuevo($periodo, $setTipoVenta);
+    }
+
+    // Documentos de venta
+    $arrayDocumentosVenta = $this->ventasRepository->getVentasTipoVenta($periodo, $setTipoVenta);
+
+    // =========================
+    // 🔹 Función para asignar pedidos/docVenta a cada combo
+    // =========================
+    $addToBooks = function ($source, $field) use (&$combos) {
+        foreach ($combos as &$combo) { // referencia para modificar el objeto
+            $sum = collect($source)
+                ->where('codigo_liquidacion', $combo->codigo_liquidacion)
+                ->sum('valor'); // 👈 aseguramos sumar la columna "valor"
+            $combo->{$field} = $sum;
+        }
+    };
+
+    // Agregar pedidos y documentos de venta a combos
+    $addToBooks($arrayPedidos, 'pedido');
+    $addToBooks($arrayDocumentosVenta, 'documentoVenta');
+
+    $result = [];
+
+    // =========================
+    // 🔹 Armar resultado final
+    // =========================
+    foreach ($combos as $combo) {
+        $agrupado = collect($codigosDespachos)
+            ->where('combo', $combo->codigo_liquidacion)
+            ->groupBy('combo')
+            ->map(function ($items) {
+                $etiquetas = collect($items)
+                    ->groupBy('codigo_combo')
+                    ->map(function ($etqs, $codigo_combo) {
+                        return [
+                            'codigo_combo' => $codigo_combo,
+                            'cantidad' => count($etqs), // despacho bodega por código_combo
+                        ];
+                    })->values();
+                return ['etiquetas' => $etiquetas];
+            })->first();
+
+        // Agregar datos calculados
+        $combo->despachoBodega = $agrupado
+            ? collect($agrupado['etiquetas'])->sum('cantidad')
+            : 0;
+
+        $combo->agrupado = $agrupado ? $agrupado['etiquetas'] : [];
+
+        // Si no existen pedidos/docVenta en este combo, poner 0
+        $combo->pedido = $combo->pedido ?? 0;
+        $combo->documentoVenta = $combo->documentoVenta ?? 0;
+
+        // Pasamos a array para el resultado
+        $result[] = (array) $combo;
+    }
+
+    // =========================
+    // 🔹 Verificación de errores en combos
+    // =========================
+    $result = collect($result)
+        ->map(function ($item) {
+            $error = false;
+            foreach ($item['agrupado'] as $combo) {
+                if ($combo['cantidad'] != $item['codigosPorCombo']) {
+                    $error = true;
+                    break;
+                }
+            }
+            $item['ifErrorCombo'] = $error ? 1 : 0;
+            return $item;
+        })
+        ->groupBy('nombrelibro')
+        ->sortKeys()
+        ->flatten(1)
+        ->values()
+        ->toArray();
+
+    return $result;
+}
+
+
+
 
 
     //api:get/metodosGetCodigos?getReporteCombosDespachadosXCombo=1&periodo=27&combo=CCMDH1

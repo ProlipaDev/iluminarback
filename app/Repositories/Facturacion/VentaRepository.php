@@ -40,6 +40,32 @@ class  VentaRepository extends BaseRepository
         return $query;
     }
 
+    public function getVentasTipoVentaSinCombos($periodo, $tipoVenta)
+    {
+        // Contar cuántos elementos tiene el array para generar los "?" correctos
+        $placeholders = implode(',', array_fill(0, count($tipoVenta), '?'));
+
+        $query = DB::select("
+            SELECT
+                fdv.pro_codigo AS codigo_liquidacion,
+                ls.nombre AS nombrelibro,
+                SUM(fdv.det_ven_cantidad - fdv.det_ven_dev) AS valor
+            FROM f_detalle_venta fdv
+            INNER JOIN f_venta fv ON fv.ven_codigo = fdv.ven_codigo
+                AND fv.id_empresa = fdv.id_empresa
+            INNER JOIN 1_4_cal_producto p ON fdv.pro_codigo = p.pro_codigo
+            LEFT JOIN libros_series ls ON ls.codigo_liquidacion = p.pro_codigo
+            WHERE fv.periodo_id = ?
+                AND fv.tip_ven_codigo IN ($placeholders)
+                AND fv.idtipodoc IN (1, 3, 4)
+                AND fv.est_ven_codigo <> 3
+                AND p.ifcombo = 0
+            GROUP BY fdv.pro_codigo, p.pro_nombre, fdv.det_ven_valor_u
+        ", array_merge([$periodo], $tipoVenta));
+
+        return $query;
+    }
+
     public function getPedidosTipoVenta($periodo, $tipoVenta)
     {
         // Crear los placeholders "?, ?, ?" según el número de elementos en el array
@@ -210,60 +236,159 @@ class  VentaRepository extends BaseRepository
         }
         return $resultado;
     }
-    public function getDespachoBodegaDirecta($periodo){
-        $query = DB::SELECT("SELECT
+    // public function getDespachoBodegaDirecta($periodo,  $tipoInstitucionIncluir = null){
+    //     $query = DB::SELECT("SELECT
+    //             ls.codigo_liquidacion,
+    //             l.nombrelibro,
+    //             COUNT(*) AS valor
+    //         FROM codigoslibros c
+    //         LEFT JOIN libros_series ls ON ls.idLibro = c.libro_idlibro
+    //         LEFT JOIN libro l ON l.idlibro = ls.idLibro
+    //         WHERE
+    //             c.prueba_diagnostica = '0'
+    //             AND c.estado_liquidacion IN ('0', '1', '2')
+    //             AND c.bc_periodo = '$periodo'
+    //             AND ( c.venta_estado = '1' OR c.venta_estado = '0')
+    //         GROUP BY ls.codigo_liquidacion, l.nombrelibro
+    //         ORDER BY ls.codigo_liquidacion;
+
+    //     ");
+    //     return $query;
+    // }
+    public function getDespachoBodegaDirecta($periodo, $tipoInstitucionIncluir = null)
+    {
+        $condicion = "";
+
+        if (!empty($tipoInstitucionIncluir)) {
+            // si trae valores a incluir
+            $condicion = "AND iv.tipo_institucion IN ($tipoInstitucionIncluir)";
+        }
+
+        $query = DB::select("SELECT
                 ls.codigo_liquidacion,
                 l.nombrelibro,
                 COUNT(*) AS valor
             FROM codigoslibros c
             LEFT JOIN libros_series ls ON ls.idLibro = c.libro_idlibro
             LEFT JOIN libro l ON l.idlibro = ls.idLibro
+            LEFT JOIN institucion iv ON iv.idInstitucion = c.bc_institucion
             WHERE
                 c.prueba_diagnostica = '0'
                 AND c.estado_liquidacion IN ('0', '1', '2')
-                AND c.bc_periodo = '$periodo'
-                AND ( c.venta_estado = '1' OR c.venta_estado = '0')
+                AND c.bc_periodo = ?
+                AND (c.venta_estado = '1' OR c.venta_estado = '0')
+                AND c.combo IS NULL
+                AND c.codigo_combo IS NULL
+                $condicion
             GROUP BY ls.codigo_liquidacion, l.nombrelibro
-            ORDER BY ls.codigo_liquidacion;
+            ORDER BY ls.codigo_liquidacion
+        ", [$periodo]);
 
-        ");
         return $query;
     }
-    public function getDespachoBodegaLista($periodo){
-        $query = DB::SELECT("SELECT
+    // public function getDespachoBodegaLista($periodo,  $tipoInstitucionIncluir = null){
+    //     $query = DB::SELECT("SELECT
+    //             ls.codigo_liquidacion,
+    //             l.nombrelibro,
+    //             COUNT(*) AS valor
+    //         FROM codigoslibros c
+    //         LEFT JOIN libros_series ls ON ls.idLibro = c.libro_idlibro
+    //         LEFT JOIN libro l ON l.idlibro = ls.idLibro
+    //         WHERE
+    //             c.prueba_diagnostica = '0'
+    //             AND c.estado_liquidacion IN ('0', '1', '2')
+    //             AND c.bc_periodo = '$periodo'
+    //             AND c.venta_estado = '2'
+    //         GROUP BY ls.codigo_liquidacion, l.nombrelibro
+    //         ORDER BY ls.codigo_liquidacion;
+
+    //     ");
+    //     return $query;
+    // }
+    public function getDespachoBodegaLista($periodo, $tipoInstitucionIncluir = null)
+    {
+        $condicion = "";
+
+        if (!empty($tipoInstitucionIncluir)) {
+            // si trae valores a incluir
+            $condicion = "AND il.tipo_institucion IN ($tipoInstitucionIncluir)";
+        }
+
+        $query = DB::select("SELECT
                 ls.codigo_liquidacion,
                 l.nombrelibro,
                 COUNT(*) AS valor
             FROM codigoslibros c
             LEFT JOIN libros_series ls ON ls.idLibro = c.libro_idlibro
             LEFT JOIN libro l ON l.idlibro = ls.idLibro
+            LEFT JOIN institucion il ON il.idInstitucion = c.venta_lista_institucion
             WHERE
                 c.prueba_diagnostica = '0'
                 AND c.estado_liquidacion IN ('0', '1', '2')
-                AND c.bc_periodo = '$periodo'
+                AND c.bc_periodo = ?
                 AND c.venta_estado = '2'
+                AND c.combo IS NULL
+                AND c.codigo_combo IS NULL
+                $condicion
             GROUP BY ls.codigo_liquidacion, l.nombrelibro
-            ORDER BY ls.codigo_liquidacion;
+            ORDER BY ls.codigo_liquidacion
+        ", [$periodo]);
 
-        ");
         return $query;
     }
-    public function getDespachoBodegaTodo($periodo){
-        $query = DB::SELECT("SELECT
+
+    // public function getDespachoBodegaTodo($periodo){
+    //     $query = DB::SELECT("SELECT
+    //             ls.codigo_liquidacion,
+    //             l.nombrelibro,
+    //             COUNT(*) AS valor
+    //         FROM codigoslibros c
+    //         LEFT JOIN libros_series ls ON ls.idLibro = c.libro_idlibro
+    //         LEFT JOIN libro l ON l.idlibro = ls.idLibro
+    //         WHERE
+    //             c.prueba_diagnostica = '0'
+    //             AND c.estado_liquidacion IN ('0', '1', '2')
+    //             AND c.bc_periodo = '$periodo'
+    //         GROUP BY ls.codigo_liquidacion, l.nombrelibro
+    //         ORDER BY ls.codigo_liquidacion;
+    //     ");
+    //     return $query;
+    // }
+
+    public function getDespachoBodegaTodo($periodo, $tipoInstitucionIncluir = null) {
+        $condicion = "";
+
+        if (!empty($tipoInstitucionIncluir)) {
+            // si trae valores a incluir
+            $condicion = "AND (
+                (c.venta_estado = 2 AND il.tipo_institucion IN ($tipoInstitucionIncluir))
+                OR (c.venta_estado = 1 AND iv.tipo_institucion IN ($tipoInstitucionIncluir))
+            )";
+        }
+        // si no trae nada, no se agrega la condición
+
+        $query = DB::select("SELECT
                 ls.codigo_liquidacion,
                 l.nombrelibro,
                 COUNT(*) AS valor
             FROM codigoslibros c
             LEFT JOIN libros_series ls ON ls.idLibro = c.libro_idlibro
             LEFT JOIN libro l ON l.idlibro = ls.idLibro
+            LEFT JOIN institucion il ON il.idInstitucion = c.venta_lista_institucion
+            LEFT JOIN institucion iv ON iv.idInstitucion = c.bc_institucion
             WHERE
                 c.prueba_diagnostica = '0'
                 AND c.estado_liquidacion IN ('0', '1', '2')
-                AND c.bc_periodo = '$periodo'
+                AND c.bc_periodo = ?
+                AND c.combo IS NULL
+                AND c.codigo_combo IS NULL
+                $condicion
             GROUP BY ls.codigo_liquidacion, l.nombrelibro
-            ORDER BY ls.codigo_liquidacion;
-        ");
+            ORDER BY ls.codigo_liquidacion
+        ", [$periodo]);
+
         return $query;
     }
+
 }
 ?>

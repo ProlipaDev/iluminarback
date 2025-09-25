@@ -627,14 +627,15 @@ Route::get('institucionEstCod/{id}', 'EstudianteController@institucionEstCod');
 Route::get('nivelesInstitucion/{id}', 'NivelController@nivelesInstitucion');
 Route::get('institucionUsuario/{id}', 'usuarioController@institucionUsuario');
 //ruta para cambiar el password
-Route::post('changePassword','UsuarioController@changePassword');
-Route::get('docentesInstitucion/{id}','DocenteController@docentesInstitucion');
-Route::get('estudiantesInstitucion/{id}','EstudianteController@estudiantesInstitucion');
-Route::get('reporteLibros','ReporteUsuarioController@index');
-Route::get('docentes','UsuarioController@docentes');
-Route::get('docentesVisitas','UsuarioController@docentesVisitas');
-Route::get('usuarioVisitas','UsuarioController@usuarioVisitas');
-Route::get('usuarioVisitasAll','UsuarioController@usuarioVisitasAll');
+Route::post('changePassword', 'UsuarioController@changePassword');
+Route::get('docentesInstitucion/{id}', 'DocenteController@docentesInstitucion');
+Route::get('docentesInstitucionSalle/{id}/{evaluacion}', 'DocenteController@docentesInstitucionSalle');
+Route::get('estudiantesInstitucion/{id}', 'EstudianteController@estudiantesInstitucion');
+Route::get('reporteLibros', 'ReporteUsuarioController@index');
+Route::get('docentes', 'UsuarioController@docentes');
+Route::get('docentesVisitas', 'UsuarioController@docentesVisitas');
+Route::get('usuarioVisitas', 'UsuarioController@usuarioVisitas');
+Route::get('usuarioVisitasAll', 'UsuarioController@usuarioVisitasAll');
 Route::get('usuarioVisitasXUsuarioRecurso','UsuarioController@usuarioVisitasXUsuarioRecurso');
 // Estadisticas
 Route::get('contenidos','EstadisticasController@contenidos');
@@ -791,17 +792,18 @@ Route::post('save_asignaturas_docente_salle','SalleAsignaturasController@save_as
 Route::get('delete_asignaturas_docente_salle/{id}','SalleAsignaturasController@delete_asignaturas_docente_salle');
 Route::get('asignaturas_por_area_salle/{id}','SalleAsignaturasController@asignaturas_por_area_salle');
 // preguntas salle
-Route::post('CambiarEstadoPreguntaSalle','SallePreguntasController@CambiarEstadoPreguntaSalle');
-Route::get('salle_sincronizar_preguntas/{asignatura1}/{asignatura2}/{usuario}/{n_evaluacion}','SallePreguntasController@salle_sincronizar_preguntas');
-Route::apiResource('preguntas_salle','SallePreguntasController');
-Route::get('opciones_pregunta_salle/{id}','SallePreguntasController@opciones_pregunta_salle');
-Route::post('cargar_opcion_salle','SallePreguntasController@cargar_opcion_salle');
-Route::post('editar_opcion_salle','SallePreguntasController@editar_opcion_salle');
-Route::get('quitar_opcion_salle/{id}','SallePreguntasController@quitar_opcion_salle');
-Route::get('eliminar_pregunta_salle/{id}','SallePreguntasController@eliminar_pregunta_salle');
-Route::post('cargar_opcion_vf_salle','SallePreguntasController@cargar_opcion_vf_salle');
-Route::post('transformar_preguntas_salle','SallePreguntasController@transformar_preguntas_salle');
-Route::get('validar_puntajes','SallePreguntasController@validar_puntajes');
+Route::post('CambiarEstadoPreguntaSalle', 'SallePreguntasController@CambiarEstadoPreguntaSalle');
+Route::get('salle_sincronizar_preguntas/{asignatura1}/{asignatura2}/{usuario}/{n_evaluacion}', 'SallePreguntasController@salle_sincronizar_preguntas');
+Route::apiResource('preguntas_salle', 'SallePreguntasController');
+Route::get('opciones_pregunta_salle/{id}', 'SallePreguntasController@opciones_pregunta_salle');
+Route::post('cargar_opcion_salle', 'SallePreguntasController@cargar_opcion_salle');
+Route::post('editar_opcion_salle', 'SallePreguntasController@editar_opcion_salle');
+Route::get('quitar_opcion_salle/{id}', 'SallePreguntasController@quitar_opcion_salle');
+Route::get('eliminar_pregunta_salle/{id}', 'SallePreguntasController@eliminar_pregunta_salle');
+Route::post('cargar_opcion_vf_salle', 'SallePreguntasController@cargar_opcion_vf_salle');
+Route::post('transformar_preguntas_salle', 'SallePreguntasController@transformar_preguntas_salle');
+Route::get('validar_puntajes', 'SallePreguntasController@validar_puntajes');
+Route::get('metodosGetPreguntasSalle','SallePreguntasController@metodosGetPreguntasSalle');
 // evaluaciones salle
 Route::get('generar_evaluacion_salle/{id_docente}/{id_institucion}/{n_evaluacion}/{admin}', 'SallePreguntasController@generar_evaluacion_salle');
 Route::get('salle_getConfiguracion/{id_institucion}/{n_evaluacion}','SallePreguntasController@salle_getConfiguracion');
@@ -1255,6 +1257,10 @@ Route::get('GetListaCombosXTemporada','_14ProductoController@GetListaCombosXTemp
 Route::get('VerificarDirectorGeneralComiles','UsuarioController@VerificarDirectorGeneralComiles');
 Route::get('getTodas_FAE_NAVAL_TERESTRE_BACK','UsuarioController@getTodas_FAE_NAVAL_TERESTRE_BACK');
 Route::get('Todo_Libros_Series_Nombre_y_Codigo','LibroSerieController@Todo_Libros_Series_Nombre_y_Codigo');
+Route::get('ReporteContratos21_22','VentasController@ReporteContratos21_22');
+Route::get('ReporteContratos23_24','VentasController@ReporteContratos23_24');
+Route::get('GetPeriodoescolar_FicheroMercado','PeriodoController@GetPeriodoescolar_FicheroMercado');
+Route::post('Transferencia_ActividadesyAnimaciones_Asignatura','ActividadAnimacionController@Transferencia_ActividadesyAnimaciones_Asignatura');
 Route::post('Agregar_F_DetalleVenta_ConsultaFinalRegalados','CodigosLibrosController@Agregar_F_DetalleVenta_ConsultaFinalRegalados');
 Route::post('Agregar_Nombres_ConsultaFinalRegalados','CodigosLibrosController@Agregar_Nombres_ConsultaFinalRegalados');
 Route::post('Agrupar_Regalados_Devueltos_Temporada','CodigosLibrosController@Agrupar_Regalados_Devueltos_Temporada');
@@ -1279,7 +1285,6 @@ Route::post('EliminarPedidoCompleto_SinContrato','PedidosController@EliminarPedi
 Route::post('Regresar_A_Pendiente_Documento','VentasController@Regresar_A_Pendiente_Documento');
 Route::post('asignar_asignatura_docentes_xarea_disponible','AsignaturaDocenteController@asignar_asignatura_docentes_xarea_disponible');
 //FIN APIS JEYSON LARA
-
 
 //GUARDAR ANTICIPOS APROBADOS DESPUES DE GENERAR EL CONTRATO
 Route::post('guardarAnticipoAprobadoContrato', 'PedidosController@guardarAnticipoAprobadoContrato');
@@ -2167,3 +2172,13 @@ Route::post('change_asesor_en_pedido', 'PedidosController@change_asesor_en_pedid
 
 //validacion institucion
 Route::get('validarTipoInstitucion/{id}', 'InstitucionController@validarTipoInstitucion');
+Route::get('limpiarCeroParallenarIdsPerseo','AdminController@limpiarCeroParallenarIdsPerseo');
+Route::get('llenarIdsPerseo','AdminController@llenarIdsPerseo');
+Route::get('llenarIdsPerseoxCodigo/{codigo}','AdminController@llenarIdsPerseoxCodigo');
+Route::get('verificarProductosPerseo/{codigo}/{empresa}','AdminController@llenarIdsPerseoxCodigoXEmpresa');
+
+
+
+Route::get('Post_ActualizarPorcentaje_VentaActa', 'AdminController@Post_ActualizarPorcentaje_VentaActa');
+
+Route::get('codigosXcontrato', 'VentasController@codigosXcontrato');

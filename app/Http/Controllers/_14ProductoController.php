@@ -23,26 +23,60 @@ class _14ProductoController extends Controller {
     public function GetProducto_Reportes(Request $request) {
         $grupoCodigos = $request->input('grupo_codigo_selected');
         $tipoReporte = $request->input('tipoReporte');
-        // return $tipoReporte;
+
         if ($tipoReporte == 1) {
-            $query = DB::select("SELECT pr.*, gp.gru_pro_nombre FROM 1_4_cal_producto pr
-                LEFT JOIN 1_4_grupo_productos gp ON pr.gru_pro_codigo = gp.gru_pro_codigo
-                ORDER BY pr.pro_nombre ASC");
+            $query = DB::select("
+                SELECT pr.*,
+                    gp.gru_pro_nombre,
+                    s.nombre_serie
+                FROM 1_4_cal_producto pr
+                LEFT JOIN 1_4_grupo_productos gp
+                    ON pr.gru_pro_codigo = gp.gru_pro_codigo
+                LEFT JOIN libros_series ls
+                    ON pr.pro_codigo = ls.codigo_liquidacion
+                LEFT JOIN series s
+                    ON ls.id_serie = s.id_serie
+                ORDER BY pr.pro_nombre ASC
+            ");
             return $query;
         }
+
         // Verifica que haya elementos
         if (is_array($grupoCodigos) && count($grupoCodigos) > 0) {
             $placeholders = implode(',', array_fill(0, count($grupoCodigos), '?'));
 
-            $query = DB::select("SELECT pr.*, gp.gru_pro_nombre FROM 1_4_cal_producto pr
-                LEFT JOIN 1_4_grupo_productos gp ON pr.gru_pro_codigo = gp.gru_pro_codigo
+            $query = DB::select("
+                SELECT pr.*,
+                    gp.gru_pro_nombre,
+                    s.nombre_serie
+                FROM 1_4_cal_producto pr
+                LEFT JOIN 1_4_grupo_productos gp
+                    ON pr.gru_pro_codigo = gp.gru_pro_codigo
+                LEFT JOIN libros_series ls
+                    ON pr.pro_codigo = ls.codigo_liquidacion
+                LEFT JOIN series s
+                    ON ls.id_serie = s.id_serie
                 WHERE pr.gru_pro_codigo IN ($placeholders)
-                ORDER BY pr.pro_nombre ASC", $grupoCodigos);
+                ORDER BY pr.pro_nombre ASC
+            ", $grupoCodigos);
 
             return $query;
         }
+
         // Si no hay grupos seleccionados, devuelve todos
-        return DB::select("SELECT * FROM 1_4_cal_producto ORDER BY pro_nombre ASC");
+        return DB::select("
+            SELECT pr.*,
+                gp.gru_pro_nombre,
+                s.nombre_serie
+            FROM 1_4_cal_producto pr
+            LEFT JOIN 1_4_grupo_productos gp
+                ON pr.gru_pro_codigo = gp.gru_pro_codigo
+            LEFT JOIN libros_series ls
+                ON pr.pro_codigo = ls.codigo_liquidacion
+            LEFT JOIN series s
+                ON ls.id_serie = s.id_serie
+            ORDER BY pr.pro_nombre ASC
+        ");
     }
     //INICIO SECCION OBETENER LISTADO COMBOS X TEMPORADA
     public function GetListaCombosXTemporada(Request $request)
@@ -658,6 +692,7 @@ class _14ProductoController extends Controller {
                     'estado' => $request->estado ?? 1,
                     'cantidad' => $request->cantidad ?? 0,
                     'iniciales' => $request->codigo_liquidacion,
+                    'id_libro_plus' => $request->id_libro_plus
                 ]
             );
 

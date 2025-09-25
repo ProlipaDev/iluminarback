@@ -1923,4 +1923,57 @@ class UsuarioController extends Controller
             return response()->json(['SinVentas' => true]);
         }
     }
+
+    //api:post>>/UpdateMobilePerfilUsuario
+    public function UpdateMobilePerfilUsuario(Request $request){
+        try {
+            // Validar datos de entrada
+            $request->validate([
+                'idusuario' => 'required|integer|exists:usuario,idusuario',
+                'email' => 'required|email|max:255',
+                'phone' => 'nullable|string|max:20'
+            ]);
+
+            // Buscar el usuario
+            $usuario = Usuario::findOrFail($request->idusuario);
+            
+            // QUITA ESTA LÍNEA: return $usuario;
+            
+            // Actualizar campos
+            $usuario->email = $request->email;
+            $usuario->telefono = $request->phone;
+            $usuario->save();
+
+            // Respuesta exitosa
+            return response()->json([
+                'success' => true,
+                'message' => 'Perfil actualizado correctamente',
+                'data' => [
+                    'idusuario' => $usuario->idusuario,
+                    'email' => $usuario->email,
+                    'telefono' => $usuario->telefono
+                ]
+            ], 200);
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Datos de entrada inválidos',
+                'errors' => $e->errors()
+            ], 422);
+            
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Usuario no encontrado'
+            ], 404);
+            
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error interno del servidor',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
 }

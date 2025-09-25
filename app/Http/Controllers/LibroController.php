@@ -526,13 +526,18 @@ class LibroController extends Controller
         //0 = libro; 1 = serie; 2 codigo
         $query = DB::table('libro as l')
         ->select('l.*', 'a.nombreasignatura as asignatura',
-                'ls.iniciales', 'ls.codigo_liquidacion', 'ls.year', 'ls.version',
-                's.id_serie', 's.nombre_serie', 'ls.nombre', 'p.ifcombo', 'p.codigos_combos','folleto.nombrelibro as folleto_nombre','folleto_ls.id_serie as folleto_id_serie')
+                'ls.iniciales', 'ls.codigo_liquidacion', 'ls.year', 'ls.version', 'ls.id_libro_plus',
+                's.id_serie', 's.nombre_serie', 'ls.nombre', 'p.ifcombo', 'p.codigos_combos',
+                'folleto.nombrelibro as folleto_nombre','folleto_ls.id_serie as folleto_id_serie',
+                'libro_plus.nombrelibro as libro_plus_nombre','libro_plus_ls.id_serie as libro_plus_id_serie'
+        )
         ->leftJoin('asignatura as a', 'a.idasignatura', '=', 'l.asignatura_idasignatura')
         ->leftJoin('libros_series as ls', 'ls.idLibro', '=', 'l.idlibro')
         ->leftJoin('series as s', 's.id_serie', '=', 'ls.id_serie')
         ->leftJoin('libro as folleto', 'folleto.idlibro', '=', 'l.id_folleto')
         ->leftJoin('libros_series as folleto_ls', 'folleto_ls.idLibro', '=', 'folleto.idlibro')
+        ->leftJoin('libro as libro_plus', 'libro_plus.idlibro', '=', 'ls.id_libro_plus')
+        ->leftJoin('libros_series as libro_plus_ls', 'libro_plus_ls.idLibro', '=', 'libro_plus.idlibro')
         ->leftJoin('1_4_cal_producto as p', 'ls.codigo_liquidacion', '=', 'p.pro_codigo');
 
     // Determine the WHERE clause based on the 'tipo' parameter
@@ -621,7 +626,8 @@ class LibroController extends Controller
                         'codigo_liquidacion'        => $request->codigo_liquidacion,
                         'nombre'                    => $libro->nombrelibro,
                         'year'                      => $request->year,
-                        'version'                   => $request->version2
+                        'version'                   => $request->version2,
+                        'id_libro_plus'             => $request->id_libro_plus ?? null
                     ]);
                     $producto = DB::table('1_4_cal_producto')
                     ->whereExists(function ($query) use ($request) {
@@ -636,6 +642,18 @@ class LibroController extends Controller
                         'ifcombo'           => $request->ifcombo,
                         'codigos_combos'    => $request->codigos_combos ?? null,
                     ]);
+                    // actualizar por codigo de liquidacion en libro series
+                    // DB::table('libros_series')
+                    // ->where('codigo_liquidacion', $request->codigo_liquidacion)
+                    // ->update([
+                    //     'id_serie'                  => $request->id_serie,
+                    //     'iniciales'                 => $request->codigo_liquidacion,
+                    //     'codigo_liquidacion'        => $request->codigo_liquidacion,
+                    //     'nombre'                    => $libro->nombrelibro,
+                    //     'year'                      => $request->year,
+                    //     'version'                   => $request->version2,
+                    //     'id_libro_plus'             => $request->id_libro_plus ?? null
+                    // ]);
                 }else{
                     //para agregar en la tabla serie
                     $librosSerie = new LibroSerie();
@@ -646,6 +664,7 @@ class LibroController extends Controller
                     $librosSerie->nombre             = $libro->nombrelibro;
                     $librosSerie->year               = $request->year;
                     $librosSerie->version            = $request->version2;
+                    $librosSerie->id_libro_plus      = $request->id_libro_plus ?? null;
                     $librosSerie->boton              = "success";
                     $librosSerie->save();
                 }

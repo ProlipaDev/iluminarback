@@ -60,7 +60,7 @@ Route::get('libros_estudiante/{id}/{institucion}/{periodo}/{region}/{grupo}', 'C
 Route::resource('series','SeriesController');
 Route::get('validarTipoInstitucion/{id}', 'InstitucionController@validarTipoInstitucion');
 Route::apiResource('codigoslibros', 'CodigosLibrosController');
-
+Route::post('/mobile/editarPerfil', 'UsuarioController@UpdateMobilePerfilUsuario');
 
 // Get message
 Route::post('/send-message', [

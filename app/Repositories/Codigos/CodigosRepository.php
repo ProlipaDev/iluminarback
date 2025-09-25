@@ -1356,50 +1356,147 @@ class  CodigosRepository extends BaseRepository
             throw new \Exception("Error al guardar el historico stock new producto $pro_codigo");
         }
     }
-    public function reporteCombos($periodo){
-         $query = DB::select("SELECT
-            sub.combo AS codigo,
-            COUNT(DISTINCT sub.codigo_combo) AS cantidad,
-            SUM(sub.cantidad) AS total_codigos,
-            pr.codigos_combos,
-            pr.pro_nombre AS nombrelibro,
-            ls.idLibro,
-            v.det_ven_valor_u AS precio
-        FROM (
-            SELECT c.codigo_combo, c.combo, COUNT(*) AS cantidad
-            FROM codigoslibros c
-            WHERE c.prueba_diagnostica = '0'
-            AND c.codigo_combo IS NOT NULL
-            AND c.bc_periodo = '$periodo'
-            AND c.estado_liquidacion IN ('0', '1', '2')
-            GROUP BY c.codigo_combo, c.combo
-        ) AS sub
-        LEFT JOIN `1_4_cal_producto` pr ON pr.pro_codigo = sub.combo
-        LEFT JOIN libros_series ls ON ls.codigo_liquidacion = pr.pro_codigo
-        LEFT JOIN f_detalle_venta v ON v.pro_codigo = pr.pro_codigo
-        LEFT JOIN f_venta v2 ON v2.ven_codigo = v.ven_codigo
-            AND v.id_empresa = v2.id_empresa
-            AND v2.periodo_id = '$periodo'  -- Aseguramos que solo se tomen los precios del periodo específico
-        WHERE v2.periodo_id = '$periodo'  -- Filtro adicional para asegurar que se obtienen solo los datos del periodo correcto
-        GROUP BY sub.combo, pr.codigos_combos, pr.pro_nombre, ls.idLibro, v.det_ven_valor_u;
+    // public function reporteCombos($periodo){
+    //      $query = DB::select("SELECT
+    //         sub.combo AS codigo,
+    //         COUNT(DISTINCT sub.codigo_combo) AS cantidad,
+    //         SUM(sub.cantidad) AS total_codigos,
+    //         pr.codigos_combos,
+    //         pr.pro_nombre AS nombrelibro,
+    //         ls.idLibro,
+    //         v.det_ven_valor_u AS precio
+    //     FROM (
+    //         SELECT c.codigo_combo, c.combo, COUNT(*) AS cantidad
+    //         FROM codigoslibros c
+    //         WHERE c.prueba_diagnostica = '0'
+    //         AND c.codigo_combo IS NOT NULL
+    //         AND c.bc_periodo = '$periodo'
+    //         AND c.estado_liquidacion IN ('0', '1', '2')
+    //         GROUP BY c.codigo_combo, c.combo
+    //     ) AS sub
+    //     LEFT JOIN `1_4_cal_producto` pr ON pr.pro_codigo = sub.combo
+    //     LEFT JOIN libros_series ls ON ls.codigo_liquidacion = pr.pro_codigo
+    //     LEFT JOIN f_detalle_venta v ON v.pro_codigo = pr.pro_codigo
+    //     LEFT JOIN f_venta v2 ON v2.ven_codigo = v.ven_codigo
+    //         AND v.id_empresa = v2.id_empresa
+    //         AND v2.periodo_id = '$periodo'  -- Aseguramos que solo se tomen los precios del periodo específico
+    //     WHERE v2.periodo_id = '$periodo'  -- Filtro adicional para asegurar que se obtienen solo los datos del periodo correcto
+    //     GROUP BY sub.combo, pr.codigos_combos, pr.pro_nombre, ls.idLibro, v.det_ven_valor_u;
 
-        ");
+    //     ");
 
-        foreach ($query as $key => $item) {
-            // Calcular precio total
+    //     foreach ($query as $key => $item) {
+    //         // Calcular precio total
+    //         $item->precio_total = round(($item->cantidad ?? 0) * ($item->precio ?? 0), 2);
+
+    //         // Calcular cantidad de códigos por combo
+    //         if (!empty($item->codigos_combos)) {
+    //             $codigosArray = explode(',', $item->codigos_combos);
+    //             $item->codigosPorCombo = count($codigosArray);
+    //         } else {
+    //             $item->codigosPorCombo = 0;
+    //         }
+    //     }
+
+    //     return $query;
+    // }
+
+
+    // public function reporteCombosDinamica($periodo,$tipoInstitucionIncluir){
+    //      $query = DB::select("SELECT
+    //         sub.combo AS codigo,
+    //         COUNT(DISTINCT sub.codigo_combo) AS cantidad,
+    //         SUM(sub.cantidad) AS total_codigos,
+    //         pr.codigos_combos,
+    //         pr.pro_nombre AS nombrelibro,
+    //         ls.idLibro,
+    //         v.det_ven_valor_u AS precio
+    //     FROM (
+    //         SELECT c.codigo_combo, c.combo, COUNT(*) AS cantidad
+    //         FROM codigoslibros c
+    //         WHERE c.prueba_diagnostica = '0'
+    //         AND c.codigo_combo IS NOT NULL
+    //         AND c.bc_periodo = '$periodo'
+    //         AND c.estado_liquidacion IN ('0', '1', '2')
+    //         GROUP BY c.codigo_combo, c.combo
+    //     ) AS sub
+    //     LEFT JOIN `1_4_cal_producto` pr ON pr.pro_codigo = sub.combo
+    //     LEFT JOIN libros_series ls ON ls.codigo_liquidacion = pr.pro_codigo
+    //     LEFT JOIN f_detalle_venta v ON v.pro_codigo = pr.pro_codigo
+    //     LEFT JOIN f_venta v2 ON v2.ven_codigo = v.ven_codigo
+    //         AND v.id_empresa = v2.id_empresa
+    //         AND v2.periodo_id = '$periodo'  -- Aseguramos que solo se tomen los precios del periodo específico
+    //     WHERE v2.periodo_id = '$periodo'  -- Filtro adicional para asegurar que se obtienen solo los datos del periodo correcto
+    //     GROUP BY sub.combo, pr.codigos_combos, pr.pro_nombre, ls.idLibro, v.det_ven_valor_u;
+
+    //     ");
+
+    //     foreach ($query as $key => $item) {
+    //         // Calcular precio total
+    //         $item->precio_total = round(($item->cantidad ?? 0) * ($item->precio ?? 0), 2);
+
+    //         // Calcular cantidad de códigos por combo
+    //         if (!empty($item->codigos_combos)) {
+    //             $codigosArray = explode(',', $item->codigos_combos);
+    //             $item->codigosPorCombo = count($codigosArray);
+    //         } else {
+    //             $item->codigosPorCombo = 0;
+    //         }
+    //     }
+
+    //     return $query;
+    // }
+    public function reporteCombosDinamica($periodo, $tipoInstitucionIncluir = null) {
+        $condicion = "";
+
+        if (!empty($tipoInstitucionIncluir)) {
+            $condicion = "AND (
+                (c.venta_estado = 2 AND il.tipo_institucion IN ($tipoInstitucionIncluir))
+                OR (c.venta_estado = 1 AND iv.tipo_institucion IN ($tipoInstitucionIncluir))
+            )";
+        }
+
+        $query = DB::select("
+            SELECT
+                sub.combo AS codigo_liquidacion,
+                COUNT(DISTINCT sub.codigo_combo) AS cantidad,
+                SUM(sub.cantidad) AS total_codigos,
+                pr.codigos_combos,
+                pr.pro_nombre AS nombrelibro,
+                ls.idLibro,ls.year, ls.version,
+                v.det_ven_valor_u AS precio
+            FROM (
+                SELECT c.codigo_combo, c.combo, COUNT(*) AS cantidad
+                FROM codigoslibros c
+                LEFT JOIN institucion il ON il.idInstitucion = c.venta_lista_institucion
+                LEFT JOIN institucion iv ON iv.idInstitucion = c.bc_institucion
+                WHERE c.prueba_diagnostica = '0'
+                AND c.codigo_combo IS NOT NULL
+                AND c.bc_periodo = ?
+                AND c.estado_liquidacion IN ('0', '1', '2')
+                $condicion
+                GROUP BY c.codigo_combo, c.combo
+            ) AS sub
+            LEFT JOIN `1_4_cal_producto` pr ON pr.pro_codigo = sub.combo
+            LEFT JOIN libros_series ls ON ls.codigo_liquidacion = pr.pro_codigo
+            LEFT JOIN f_detalle_venta v ON v.pro_codigo = pr.pro_codigo
+            LEFT JOIN f_venta v2 ON v2.ven_codigo = v.ven_codigo
+                AND v.id_empresa = v2.id_empresa
+                AND v2.periodo_id = ?
+            WHERE v2.periodo_id = ?
+            GROUP BY sub.combo, pr.codigos_combos, pr.pro_nombre, ls.idLibro, v.det_ven_valor_u
+        ", [$periodo, $periodo, $periodo]);
+
+        foreach ($query as $item) {
             $item->precio_total = round(($item->cantidad ?? 0) * ($item->precio ?? 0), 2);
-
-            // Calcular cantidad de códigos por combo
-            if (!empty($item->codigos_combos)) {
-                $codigosArray = explode(',', $item->codigos_combos);
-                $item->codigosPorCombo = count($codigosArray);
-            } else {
-                $item->codigosPorCombo = 0;
-            }
+            $item->codigosPorCombo = !empty($item->codigos_combos)
+                ? count(explode(',', $item->codigos_combos))
+                : 0;
         }
 
         return $query;
     }
+
     public function save_devolucion_codigos_desarmados($arrayCodigos, $id_devolucion)
     {
 

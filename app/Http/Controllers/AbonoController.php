@@ -145,8 +145,10 @@ class AbonoController extends Controller
 
     public function obtenerAbonos(Request $request)
     {
-        $abonoNotas = DB::SELECT("SELECT bn.*, cp.cue_pag_nombre FROM abono bn
+        $abonoNotas = DB::SELECT("SELECT bn.*, cp.cue_pag_nombre, CONCAT(u.nombres, ' ', u.apellidos) as usuario_creador, CONCAT(us.nombres, ' ', us.apellidos) as usuario_actualizador FROM abono bn
             LEFT JOIN 1_1_cuenta_pago cp ON cp.cue_pag_codigo = bn.abono_cuenta
+            LEFT JOIN usuario u ON u.idusuario = bn.user_created
+            LEFT JOIN usuario us ON us.idusuario = bn.user_update
             WHERE bn.abono_notas > 0
             AND bn.abono_facturas = 0
             AND bn.abono_ruc_cliente ='$request->cliente'
@@ -156,8 +158,10 @@ class AbonoController extends Controller
             ORDER BY bn.created_at DESC");
         $abonosConNotas = $abonoNotas;
 
-        $abonoFacturas = DB::SELECT("SELECT bn.*, cp.cue_pag_nombre FROM abono bn
+        $abonoFacturas = DB::SELECT("SELECT bn.*, cp.cue_pag_nombre, CONCAT(u.nombres, ' ', u.apellidos) as usuario_creador, CONCAT(us.nombres, ' ', us.apellidos) as usuario_actualizador FROM abono bn
             LEFT JOIN 1_1_cuenta_pago cp ON cp.cue_pag_codigo = bn.abono_cuenta
+            LEFT JOIN usuario u ON u.idusuario = bn.user_created
+            LEFT JOIN usuario us ON us.idusuario = bn.user_update
             WHERE bn.abono_facturas > 0
             AND bn.abono_notas = 0
             AND bn.abono_ruc_cliente ='$request->cliente'
@@ -167,8 +171,10 @@ class AbonoController extends Controller
             ORDER BY bn.created_at DESC");
         $abonosConFacturas = $abonoFacturas;
 
-        $abonosAll = DB::SELECT("SELECT bn.*, cp.cue_pag_nombre FROM abono bn
+        $abonosAll = DB::SELECT("SELECT bn.*, cp.cue_pag_nombre, CONCAT(u.nombres, ' ', u.apellidos) as usuario_creador, CONCAT(us.nombres, ' ', us.apellidos) as usuario_actualizador FROM abono bn
             LEFT JOIN 1_1_cuenta_pago cp ON cp.cue_pag_codigo = bn.abono_cuenta
+            LEFT JOIN usuario u ON u.idusuario = bn.user_created
+            LEFT JOIN usuario us ON us.idusuario = bn.user_update
             WHERE bn.abono_ruc_cliente ='$request->cliente'
             -- AND bn.abono_institucion = $request->institucion
             AND bn.abono_periodo = $request->periodo
@@ -881,7 +887,8 @@ class AbonoController extends Controller
             'abono_documento' => 'nullable|string|max:100',
             'abono_concepto' => 'nullable|string|max:500',
             'abono_cuenta' => 'nullable|integer',
-            'notasOfactura' => 'required|integer|in:0,1'
+            'notasOfactura' => 'required|integer|in:0,1',
+            'user_created' => 'required'
         ]);
 
         if ($validator->fails()) {
@@ -922,6 +929,7 @@ class AbonoController extends Controller
             $abono->abono_documento = $request->abono_documento;
             $abono->abono_concepto = $request->abono_concepto;
             $abono->abono_cuenta = $request->abono_cuenta;
+            $abono->user_update = $request->user_created;
             // Aquí puedes añadir cualquier otro campo que desees actualizar
 
             // Guardar los cambios
@@ -956,7 +964,8 @@ class AbonoController extends Controller
             'abono_concepto' => 'nullable|string|max:500',
             'abono_cuenta' => 'nullable|integer',
             'abono_id' => 'required',
-            'notasOfactura' => 'required|integer|in:0,1'
+            'notasOfactura' => 'required|integer|in:0,1',
+            'user_created' => 'required'
         ]);
 
         if ($validator->fails()) {
@@ -997,6 +1006,7 @@ class AbonoController extends Controller
             $abono->abono_documento = $request->abono_documento;
             $abono->abono_concepto = $request->abono_concepto;
             $abono->abono_cuenta = $request->abono_cuenta;
+            $abono->user_update = $request->user_created;
             // Aquí puedes añadir cualquier otro campo que desees actualizar
 
             // Guardar los cambios
@@ -1267,7 +1277,7 @@ class AbonoController extends Controller
             ->where('fv.est_ven_codigo', '<>', 3)
             ->where('fv.periodo_id', '=', $request->periodo)
             ->where('fv.ven_desc_por', '<', 100)
-            ->whereNotIn('fv.idtipodoc', [16, 17])
+            ->whereIn('fv.idtipodoc', [1, 3, 4])
             ->select(
                 'fv.idtipodoc',
                 'ft.tdo_id',

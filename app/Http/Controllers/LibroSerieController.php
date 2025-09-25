@@ -50,10 +50,10 @@ class LibroSerieController extends Controller
     }
 
     public function Todo_Libros_Series_Nombre_y_Codigo(){
-        $query = DB::SELECT('SELECT ls.codigo_liquidacion, ls.nombre
+        $query = DB::SELECT('SELECT ls.codigo_liquidacion, ls.nombre, pro.ifcombo
             FROM libros_series ls
             LEFT JOIN `1_4_cal_producto` pro ON ls.codigo_liquidacion = pro.pro_codigo
-            WHERE pro.ifcombo = 0
+            -- WHERE pro.ifcombo = 0
             ORDER BY ls.codigo_liquidacion ASC');
         return $query;
     }

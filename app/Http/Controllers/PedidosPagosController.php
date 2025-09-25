@@ -75,6 +75,10 @@ class PedidosPagosController extends Controller
         if($request->getVentaTotalListaDirectaAsesor)     { return $this->pagoRepository->getVentaTotalListaDirectaAsesor($request); }
         //venta total de documentos liq
         if($request->getTotalDocumentosLiq)         { return $this->pagoRepository->getTotalDocumentosLiq($request); }
+        // pagos cerrados y no cerrados
+        if($request->getPagosCerradosNoCerrados)    { return $this->pagoRepository->getPagosCerradosNoCerrados($request); }
+        // convenios aprobados y no aprobados
+        if($request->getConveniosAprobadosNoAprobados) { return $this->pagoRepository->getConveniosAprobadosNoAprobados($request); }
         //actualizar venta real
         if($request->updateVentaReal)               { return $this->pagoRepository->updateVentaReal($request); }
         // obtener el detalle de sub pagos del pago

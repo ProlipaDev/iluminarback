@@ -2074,7 +2074,8 @@ class PedidosController extends Controller
                 'contadorConvenioAprobadoGerencia' => $item->contadorConvenioAprobadoGerencia,
                 'contadorConvenioAprobadoFacturador' => $item->contadorConvenioAprobadoFacturador,
                 'convenioAnulado'                => $item->convenioAnulado,
-                'convenioFinalizados'             => $item->convenioFinalizados
+                'convenioFinalizados'             => $item->convenioFinalizados,
+                'estadoPedido_Pagos'            => $item->estadoPedido_Pagos,
             ];
         }
         return $response;
@@ -2176,6 +2177,7 @@ class PedidosController extends Controller
                     'contadorConvenioAprobadoFacturador' => $item->contadorConvenioAprobadoFacturador,
                     'convenioAnulado'                => $item->convenioAnulado,
                     'convenioFinalizados'            => $item->convenioFinalizados,
+                    'estadoPedido_Pagos'            => $item->estadoPedido_Pagos,
                 ];
             }
             return $datosMostrar;
@@ -8527,6 +8529,7 @@ class PedidosController extends Controller
     //api:post/metodosPostPedidos
     public function metodosPostPedidos(Request $request){
         if($request->guardarTabAnticipo == 1){ return $this->guardarTabAnticipo($request); }
+        if($request->changeEstadoPedidoEtiqueta == 1){ return $this->changeEstadoPedidoEtiqueta($request); }
     }
     //api:post/metodosPostPedidos?guardarTabAnticipo=1
     public function guardarTabAnticipo(Request $request){
@@ -8555,6 +8558,25 @@ class PedidosController extends Controller
                 'status' => 0,
                 'message' => 'No se pudo guardar el anticipo del pedido: ',
                 'pedido' => $setPedido
+            ]);
+        }
+    }
+    //api:post/metodosPostPedidos?changeEstadoPedidoEtiqueta=1
+    public function changeEstadoPedidoEtiqueta(Request $request){
+        $estadopedido = Pedidos::findOrFail($request->id_pedido);
+        $estadopedido->estadoPedido_Pagos = $request->estadoPedido_Pagos;
+        $estadopedido->save();
+        if($estadopedido){
+            return response()->json([
+                'status' => 1,
+                'message' => 'Se cambio correctamente el estado del pedido: ',
+                'pedido' => $estadopedido
+            ]);
+        }else{
+            return response()->json([
+                'status' => 0,
+                'message' => 'No se pudo cambiar el estado del pedido: ',
+                'pedido' => $estadopedido
             ]);
         }
     }

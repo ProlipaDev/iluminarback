@@ -1,6 +1,8 @@
 <?php
 
 namespace App\Http\Controllers;
+
+use App\Models\Libro;
 use DB;
 use App\Models\unidad;
 use App\Models\Temas;
@@ -19,9 +21,13 @@ class UnidadController extends Controller
     }
     public function libro_enUnidad()
     {
-        $libros = DB::SELECT("SELECT l.idlibro, l.nombrelibro
+        $libros = DB::SELECT("SELECT l.idlibro, l.nombrelibro ,
+        CONCAT(l.nombrelibro,' - ', p.pro_codigo) as nombrecodigo
         FROM libro l
+        LEFT JOIN libros_series ls ON l.idlibro = ls.idLibro
+        LEFT JOIN 1_4_cal_producto p ON ls.codigo_liquidacion = p.pro_codigo
         WHERE l.Estado_idEstado = '1'
+        AND p.ifcombo = '0'
         ORDER BY l.nombrelibro ASC");
         return $libros;
         // -- and l.asignatura_idasignatura = a.idasignatura
@@ -56,6 +62,7 @@ class UnidadController extends Controller
      * @return \Illuminate\Http\Response
      */
     public function updateUnidades(Request $request){
+        if($request->porImportacionUnidades) { return $this->porImportacionUnidades($request); }
         if( $request->id_unidad_libro ){
             $dato = unidad::find($request->id_unidad_libro);
         }else{
@@ -67,6 +74,7 @@ class UnidadController extends Controller
         $dato->pag_inicio = $request->pag_inicio;
         $dato->pag_fin = $request->pag_fin;
         $dato->txt_nombre_unidad = $request->txt_nombre_unidad;
+        $dato->user_created = $request->user_created;
         $dato->estado = '1';
         $dato->save();
         // $datos = DB::UPDATE("UPDATE unidades_libros SET id_libro = $request->id_libro, unidad = $request->unidad, nombre_unidad = '$request->nombre_unidad', pag_inicio = $request->pag_inicio, pag_fin = $request->pag_fin, estado = $request->estado WHERE id_unidad_libro =  $request->id_unidad_libro");
@@ -74,6 +82,60 @@ class UnidadController extends Controller
         return $dato;
 
     }
+    //api:postupdateUnidades?porImportacionUnidades=1
+    public function porImportacionUnidades($request){
+        $datos_array = json_decode($request->datos_array);
+        $arrayUnidadesYaExistentes = [];
+        $contador = 0;
+
+        try {
+            // Inicia transacción
+            DB::beginTransaction();
+
+            foreach($datos_array as $key => $item) {
+                $validarAsignatura = Libro::where('idlibro', $item->id_libro)
+                ->select('libro.idlibro')
+                ->first();
+                if(!$validarAsignatura){
+                    return ["status" => "0", "message" => "No existe el libro con id ".$item->id_libro];
+                }
+                // validar que la unidad y el nombre de unidad y el libro no existan
+                $validarUnidad = unidad::where('id_libro', $item->id_libro)
+                ->where('unidad', $item->unidad)
+                ->where('nombre_unidad', $item->nombre_unidad)
+                ->first();
+                if($validarUnidad){
+                    $item->message = "La unidad y nombre de unidad ya existen";
+                    $arrayUnidadesYaExistentes[] = $item;
+                    continue; // Si ya existe, saltar a la siguiente iteración
+                }
+                // Creación de nueva unidad
+                $dato = new unidad();
+                $dato->id_libro          = $item->id_libro;
+                $dato->unidad            = $item->unidad;
+                $dato->nombre_unidad     = $item->nombre_unidad;
+                $dato->pag_inicio        = $item->pag_inicio;
+                $dato->pag_fin           = $item->pag_fin;
+                $dato->txt_nombre_unidad = $item->txt_nombre_unidad;
+                $dato->user_created      = $request->user_created;
+                $dato->estado            = '1';
+                $dato->save();
+                // Guardado del modelo
+                if ($dato) {
+                    $contador++; // Solo incrementa si la inserción fue exitosa
+                }
+            }
+            // Confirmar transacción si todo salió bien
+            DB::commit();
+
+            return ["status" => "1", "message" => "Se importó correctamente", "contador" => $contador, "unidades_ya_existentes" => $arrayUnidadesYaExistentes];
+        } catch (\Exception $e) {
+            // En caso de error, deshacer la transacción
+            DB::rollback();
+            return ["status" => "0", "message" => $e->getMessage()];
+        }
+    }
+
     public function store(Request $request)
     {
         $datos = unidades_libros::where('id_unidad_libro', '=', $request->$id_unidad_libro)->first();
@@ -147,13 +209,13 @@ class UnidadController extends Controller
             'libro_a_transferir' => 'required|integer',
             'libro_recibir_transferencia' => 'required|integer',
         ]);
-    
+
         // Eliminar unidades existentes asociadas al libro receptor
         unidad::where('id_libro', $request->libro_recibir_transferencia)->delete();
-    
+
         // Buscar las unidades asociadas al libro que se va a transferir
         $unidades = unidad::where('id_libro', $request->libro_a_transferir)->get();
-    
+
         // Recorrer las unidades y replicar la información en el libro receptor
         foreach ($unidades as $unidad) {
             $nuevaUnidad = new unidad();
@@ -168,7 +230,7 @@ class UnidadController extends Controller
             $nuevaUnidad->updated_at = now(); // Establecer la fecha de actualización
             $nuevaUnidad->save(); // Guardar la nueva unidad
         }
-    
+
         return response()->json(['message' => 'Transferencia de unidades completada exitosamente.'], 200);
     }
 }
