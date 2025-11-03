@@ -67,7 +67,7 @@ class PeriodoController extends Controller
     }
 
     public function GetPeriodoescolar_FicheroMercado(){
-        $query = DB::SELECT("SELECT * FROM periodoescolar WHERE permiso_fichero_mercado = 1");
+        $query = DB::SELECT("SELECT pe.*, pe.descripcion as descripcion_periodoescolar FROM periodoescolar pe WHERE pe.permiso_fichero_mercado = 1");
         return $query;
     }
 

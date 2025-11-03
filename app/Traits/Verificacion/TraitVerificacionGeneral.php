@@ -81,6 +81,7 @@ trait TraitVerificacionGeneral
     }
     public function obtenerAllRegalados($institucion,$periodo){
         $regalados = DB::SELECT("SELECT c.codigo, c.bc_fecha_ingreso, ls.codigo_liquidacion, l.nombrelibro,
+        c.combo, c.codigo_combo, c.quitar_de_reporte,
             (
                 SELECT
                     (case when (ci.verif1 > '0') then 'verif1'
@@ -129,7 +130,7 @@ trait TraitVerificacionGeneral
             ");
         return $regalados;
     }
-   
+
     public function FormatoLibrosLiquidados($num_verificacion_id,$contrato,$periodo){
         $contador            = 0;
         $datos               = [];

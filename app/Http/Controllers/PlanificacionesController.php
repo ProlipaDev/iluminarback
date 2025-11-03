@@ -145,4 +145,37 @@ class PlanificacionesController extends Controller
     {
         //
     }
+
+    public function descargarPlanificacion($id)
+    {
+        $planificacion = Planificacion::find($id);
+        if (!$planificacion) {
+            abort(404, 'Archivo no encontrado en DB');
+        }
+
+        // Ruta del archivo remoto
+        $filePath = 'https://data.prolipadigital.com.ec/archivos/upload/planificacion/' . $planificacion->webplanificacion;
+
+        // Descargar contenido remoto
+        $content = @file_get_contents($filePath);
+        if (!$content) {
+            abort(404, 'Archivo remoto no encontrado');
+        }
+
+        // Guardar temporalmente en el servidor
+        $temp = tempnam(sys_get_temp_dir(), 'planificacion');
+        file_put_contents($temp, $content);
+
+        // Obtener extensión real del archivo
+        $extension = pathinfo($planificacion->webplanificacion, PATHINFO_EXTENSION);
+
+        // Nombre de descarga basado en el nombre real de la planificación + extensión
+        $nombreDescarga = $planificacion->nombreplanificacion . '.' . $extension;
+
+        // Descargar y eliminar el archivo temporal
+        return response()->download($temp, $nombreDescarga)->deleteFileAfterSend(true);
+    }
+
+
+
 }

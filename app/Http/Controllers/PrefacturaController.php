@@ -14,6 +14,7 @@ use App\Traits\Codigos\TraitCodigosGeneral;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use App\Http\Controllers\_14ProductoController;
+use App\Models\CodigosLibrosDevolucionDesarmadoSon;
 use Validator;
 
 class PrefacturaController extends Controller
@@ -34,7 +35,8 @@ class PrefacturaController extends Controller
     {
         if($request->getReportePrefacturaAgrupado) { return $this->getReportePrefacturaAgrupado($request); }
         if($request->notasMovidasAnteriores)       { return $this->getNotasMovidasAnteriores($request); }
-        if($request->getPrefacturasMovidas)       { return $this->getPrefacturasMovidas($request); }
+        if($request->getPrefacturasMovidas)        { return $this->getPrefacturasMovidas($request); }
+        if($request->getNotasMovidas)              { return $this->getNotasMovidas($request); }
     }
     //api:get/prefactura_documentos?getReportePrefacturaAgrupado=1&periodo_id=25&tipoVenta=1
     public function getReportePrefacturaAgrupado(Request $request)
@@ -334,6 +336,28 @@ class PrefacturaController extends Controller
         ];
     }
 
+    //api:get/prefactura_documentos?getNotasMovidas=1&periodo_id=25
+    public function getNotasMovidas(Request $request)
+    {
+        $periodoId = $request->get('periodo_id');
+        if(!$periodoId){
+            return response()->json(['status' => '0', 'message' => 'El periodo_id es obligatorio'], 200);
+        }
+        $query = DB::SELECT("SELECT i.nombreInstitucion,
+            CONCAT(u.nombres,' ',u.apellidos) AS usuarioIntercambio,
+            CONCAT(cli.nombres,' ',cli.apellidos) AS cliente,
+            cli.cedula AS cliente_cedula,
+            v.id_empresa, v.ven_codigo, v.doc_intercambio, v.fecha_intercambio
+            FROM f_venta v
+            LEFT JOIN institucion i ON i.idInstitucion = v.institucion_id
+            LEFT JOIN usuario u ON u.idusuario = v.user_intercambio
+            LEFT JOIN usuario cli ON cli.idusuario = v.ven_cliente
+            WHERE v.periodo_id = '$periodoId'
+            AND v.doc_intercambio IS NOT NULL
+            AND v.idtipodoc IN (3,4)
+        ");
+        return $query;
+    }
 
     /**
      * Show the form for creating a new resource.
@@ -512,6 +536,23 @@ class PrefacturaController extends Controller
 
                 if ($codigosLibrosDevolucionSon === 0) {
                     return ["status" => "0", "message" => "No se actualizó el código en CodigosLibrosDevolucionSon con ven_codigo: $ven_codigoAnterior."];
+                }
+            }
+
+            // cambiar documentos desarmados
+            $existsCodigosDesarmadosSon = CodigosLibrosDevolucionDesarmadoSon::where('documento', $ven_codigoAnterior)
+                ->where('id_empresa', $id_empresa)
+                ->exists();
+
+            if ($existsCodigosDesarmadosSon) {
+                $codigosLibrosDevolucionSon = CodigosLibrosDevolucionDesarmadoSon::where('documento', $ven_codigoAnterior)
+                    ->where('id_empresa', $id_empresa)
+                    ->update([
+                        'documento' => $nuevo_ven_codigo,
+                    ]);
+
+                if ($codigosLibrosDevolucionSon === 0) {
+                    return ["status" => "0", "message" => "No se actualizó el código en CodigosLibrosDevolucionDesarmadoSon con ven_codigo: $ven_codigoAnterior."];
                 }
             }
             //ACTUALIZAR STOCK

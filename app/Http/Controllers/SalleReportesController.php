@@ -163,48 +163,137 @@ class SalleReportesController extends Controller
     }
     public function reporte_evaluaciones_institucionNueva($n_evaluacion)
     {
-        $evaluaciones = DB::SELECT("SELECT
-          GROUP_CONCAT(CONCAT (se.id_evaluacion) ORDER BY se.id_evaluacion) AS evaluaciones,
-          se.created_at AS fecha_evaluacion, i.idInstitucion, i.nombreInstitucion, i.ciudad_id
-          FROM salle_evaluaciones se
-          LEFT JOIN usuario u ON se.id_usuario = u.idusuario
-          LEFT JOIN institucion i ON  u.institucion_idInstitucion = i.idInstitucion
-          WHERE se.estado = 2
-          AND i.idInstitucion != 1036
-          AND se.n_evaluacion = '$n_evaluacion'
-          AND i.tipo_institucion = 2
-          GROUP BY i.idInstitucion
+
+        $instituciones = DB::SELECT("SELECT
+            GROUP_CONCAT(CONCAT(se.id_evaluacion) ORDER BY se.id_evaluacion) AS evaluaciones,
+            se.created_at AS fecha_evaluacion, i.idInstitucion, i.nombreInstitucion, i.ciudad_id
+            FROM salle_evaluaciones se
+            LEFT JOIN usuario u ON se.id_usuario = u.idusuario
+            LEFT JOIN institucion i ON  u.institucion_idInstitucion = i.idInstitucion
+            WHERE se.estado = 2
+            AND i.idInstitucion != 1036
+            AND se.n_evaluacion = '$n_evaluacion'
+            AND i.tipo_institucion = 2
+            GROUP BY i.idInstitucion
         ");
-        // dump($evaluaciones);
-        if(!empty($evaluaciones)){
-            foreach ($evaluaciones as $key => $value) {
-                $vector_evaluaciones = explode(",", $value->evaluaciones);
-                $promedio_eval_inst = 0;
-                $totalCalificaciones = 0;
-                // dump('*********************************institucion: ' . $value->idInstitucion);
-                foreach ($vector_evaluaciones as $keyE => $valueE){
-                   $getEvaluacion = SalleEvaluaciones::where('id_evaluacion', $valueE)->first();
-                   if($getEvaluacion){
-                    //calificacion_total es sobre 100% calificacion
-                       $totalCalificaciones = $totalCalificaciones + $getEvaluacion->calificacion_total;
-                   }
+
+        foreach($instituciones as $key => $item){
+
+            // Cantidad de evaluaciones
+            $item->cant_evaluaciones = count(explode(',', $item->evaluaciones));
+
+            // Traer los docentes con sus áreas y calificaciones
+            $areasDocentes = DB::SELECT("SELECT
+                sub.nombreInstitucion,
+                sub.nombre_usuario,
+                sub.nombre_area,
+                ROUND(AVG(sub.porcentaje_asignatura), 2) AS porcentaje_area_promedio
+            FROM (
+                SELECT
+                    i.nombreInstitucion,
+                    CONCAT(u.nombres, ' ', u.apellidos) AS nombre_usuario,
+                    a.nombre_area,
+                    asig.nombre_asignatura,
+                    ROUND((SUM(p.calificacion_final) / SUM(pr.puntaje_pregunta)) * 100, 2) AS porcentaje_asignatura
+                FROM salle_preguntas_evaluacion p
+                LEFT JOIN salle_preguntas pr ON pr.id_pregunta = p.id_pregunta
+                LEFT JOIN salle_evaluaciones se ON se.id_evaluacion = p.id_evaluacion
+                LEFT JOIN usuario u ON u.idusuario = se.id_usuario
+                LEFT JOIN salle_asignaturas asig ON asig.id_asignatura = pr.id_asignatura
+                LEFT JOIN salle_areas a ON a.id_area = asig.id_area
+                LEFT JOIN institucion i ON i.idInstitucion = u.institucion_idInstitucion
+                WHERE se.estado = '2'
+                AND se.n_evaluacion = '$n_evaluacion'
+                AND u.institucion_idInstitucion = '{$item->idInstitucion}'
+                GROUP BY i.nombreInstitucion, u.idusuario, a.nombre_area, asig.nombre_asignatura
+            ) AS sub
+            GROUP BY sub.nombreInstitucion, sub.nombre_usuario, sub.nombre_area
+            ORDER BY sub.nombre_usuario, sub.nombre_area;
+            ");
+
+            // Calcular promedio por área
+            $promediosPorArea = [];
+            foreach($areasDocentes as $docente){
+                $area = $docente->nombre_area;
+                if(!isset($promediosPorArea[$area])){
+                    $promediosPorArea[$area] = ['suma' => 0, 'cantidad' => 0];
                 }
-                // dump($calificaciones);
-                $promedio_eval_inst = $totalCalificaciones / count($vector_evaluaciones);
-                $promedio_eval_inst = floatval(number_format($promedio_eval_inst, 2));
-                $data['items'][$key] = [
-                    'idInstitucion'     => $value->idInstitucion,
-                    'nombreInstitucion' => $value->nombreInstitucion,
-                    'fecha_evaluacion'  => $value->fecha_evaluacion,
-                    'ciudad_id'         => $value->ciudad_id,
-                    'puntaje'           => $promedio_eval_inst,
-                    'cant_evaluaciones' => count($vector_evaluaciones)
+                $promediosPorArea[$area]['suma'] += $docente->porcentaje_area_promedio;
+                $promediosPorArea[$area]['cantidad']++;
+            }
+
+            $totalPromedioAreas = [];
+            foreach($promediosPorArea as $area => $data){
+                $totalPromedioAreas[] = [
+                    'nombre_area' => $area,
+                    'promedio_area' => round($data['suma'] / $data['cantidad'], 2)
                 ];
             }
-        }else{
-            $data = [];
+
+            $instituciones[$key]->total_promedio_areas = $totalPromedioAreas;
+            $instituciones[$key]->areas = $areasDocentes;
         }
-        return $data;
+
+        // Calcular puntaje general por institución
+        foreach($instituciones as $key => $item){
+            if(!empty($item->total_promedio_areas)){
+                $suma = 0;
+                $cantidad = count($item->total_promedio_areas);
+                foreach($item->total_promedio_areas as $area){
+                    $suma += $area['promedio_area'];
+                }
+                $item->puntaje = round($suma / $cantidad, 2);
+            } else {
+                $item->puntaje = 0;
+            }
+        }
+
+        return ['items' => $instituciones];
+
+
+
+        // $evaluaciones = DB::SELECT("SELECT
+        //   GROUP_CONCAT(CONCAT (se.id_evaluacion) ORDER BY se.id_evaluacion) AS evaluaciones,
+        //   se.created_at AS fecha_evaluacion, i.idInstitucion, i.nombreInstitucion, i.ciudad_id
+        //   FROM salle_evaluaciones se
+        //   LEFT JOIN usuario u ON se.id_usuario = u.idusuario
+        //   LEFT JOIN institucion i ON  u.institucion_idInstitucion = i.idInstitucion
+        //   WHERE se.estado = 2
+        //   AND i.idInstitucion != 1036
+        //   AND se.n_evaluacion = '$n_evaluacion'
+        //   AND i.tipo_institucion = 2
+        //   GROUP BY i.idInstitucion
+        // ");
+        // // dump($evaluaciones);
+        // if(!empty($evaluaciones)){
+        //     foreach ($evaluaciones as $key => $value) {
+        //         $vector_evaluaciones = explode(",", $value->evaluaciones);
+        //         $promedio_eval_inst = 0;
+        //         $totalCalificaciones = 0;
+        //         // dump('*********************************institucion: ' . $value->idInstitucion);
+        //         foreach ($vector_evaluaciones as $keyE => $valueE){
+        //            $getEvaluacion = SalleEvaluaciones::where('id_evaluacion', $valueE)->first();
+        //            if($getEvaluacion){
+        //             //calificacion_total es sobre 100% calificacion
+        //                $totalCalificaciones = $totalCalificaciones + $getEvaluacion->calificacion_total;
+        //            }
+        //         }
+        //         // dump($calificaciones);
+        //         $promedio_eval_inst = $totalCalificaciones / count($vector_evaluaciones);
+        //         $promedio_eval_inst = floatval(number_format($promedio_eval_inst, 2));
+        //         $data['items'][$key] = [
+        //             'idInstitucion'     => $value->idInstitucion,
+        //             'nombreInstitucion' => $value->nombreInstitucion,
+        //             'fecha_evaluacion'  => $value->fecha_evaluacion,
+        //             'ciudad_id'         => $value->ciudad_id,
+        //             'puntaje'           => $promedio_eval_inst,
+        //             'cant_evaluaciones' => count($vector_evaluaciones)
+        //         ];
+        //     }
+        // }else{
+        //     $data = [];
+        // }
+        // return $data;
     }
 
     // public function salle_promedio_areas($n_evaluacion, $institucion){
@@ -250,8 +339,8 @@ class SalleReportesController extends Controller
     //                 'puntaje'         => round($promediox_area, 2),
     //             ];
 
-               
-               
+
+
     //         }//end foreach areas
     //         $promedio_eval_area = ( $totalCalificaciones / $totalPuntajePreguntas ) * 100;
     //         $data_evaluaciones['items'][$key] = [
@@ -302,50 +391,48 @@ class SalleReportesController extends Controller
 
         $data_evaluaciones = [];
         foreach ($evaluaciones as $key => $value) {
-            // Obtener áreas de la evaluación
+            //obtener las areas de cada evaluacion
             $areas = DB::select("CALL salle_areas_evaluacion(?);", [$value->id_evaluacion]);
             $data_areas = [];
-            $totalCalificaciones = 0;
-            $totalPuntajePreguntas = 0;
+            $all_subject_puntajes = [];
 
             foreach ($areas as $keyR => $valueR) {
-                $calificacionXArea = 0;
-                $puntajeXArea = 0;
-
-                // Obtener calificaciones por área
-                $calificaciones = $this->salleRepository->getCalificacionPreguntasXArea(
-                    $value->id_evaluacion,
-                    $valueR->id_area
+                // Fetch subjects within this area
+                $asignaturas = DB::select(
+                    "SELECT sa.id_asignatura, sa.nombre_asignatura,
+                            SUM(sp.puntaje_pregunta) AS puntaje_maximo,
+                            SUM(spe.calificacion_final) AS puntaje_obtenido
+                    FROM salle_evaluaciones se
+                    JOIN salle_preguntas_evaluacion spe ON se.id_evaluacion = spe.id_evaluacion
+                    JOIN salle_preguntas sp ON spe.id_pregunta = sp.id_pregunta
+                    JOIN salle_asignaturas sa ON sp.id_asignatura = sa.id_asignatura
+                    WHERE se.id_evaluacion = ?
+                    AND sa.id_area = ?
+                    GROUP BY sa.id_asignatura, sa.nombre_asignatura",
+                    [$value->id_evaluacion, $valueR->id_area]
                 );
 
-                foreach ($calificaciones as $respuesta) {
-                    $calificacionXArea += $respuesta->puntaje;
-                    $totalCalificaciones += $respuesta->puntaje;
+                $subject_puntajes = [];
+                foreach ($asignaturas as $asig) {
+                    $calif_asig_eval = $asig->puntaje_maximo ?: 0;
+                    $calif_asig_doc = $asig->puntaje_obtenido ?: 0;
+                    $promedio_asig = ($calif_asig_eval > 0) ? ($calif_asig_doc * 100) / $calif_asig_eval : 0;
+                    $promedio_asig = min($promedio_asig, 100);
+                    $subject_puntajes[] = round($promedio_asig, 2);
                 }
 
-                // Obtener puntaje total por área
-                $puntajes = $this->salleRepository->puntajePorArea(
-                    $value->id_evaluacion,
-                    $valueR->id_area
-                );
-
-                foreach ($puntajes as $puntaje) {
-                    $puntajeXArea += $puntaje->puntaje;
-                    $totalPuntajePreguntas += $puntaje->puntaje;
-                }
-
-                // Calcular promedio por área, evitando división por cero
-                $promediox_area = $puntajeXArea > 0 ? ($calificacionXArea / $puntajeXArea) * 100 : 0;
-
+                $promediox_area = !empty($subject_puntajes) ? array_sum($subject_puntajes) / count($subject_puntajes) : 0;
                 $data_areas[] = [
                     'id_area'     => $valueR->id_area,
                     'nombre_area' => $valueR->nombre_area,
                     'puntaje'     => round($promediox_area, 2),
+                    'subjects'    => $subject_puntajes,
                 ];
+
+                $all_subject_puntajes = array_merge($all_subject_puntajes, $subject_puntajes);
             }
 
-            // Calcular promedio general de la evaluación
-            $promedio_eval_area = $totalPuntajePreguntas > 0 ? ($totalCalificaciones / $totalPuntajePreguntas) * 100 : 0;
+            $promedio_eval_area = !empty($all_subject_puntajes) ? array_sum($all_subject_puntajes) / count($all_subject_puntajes) : 0;
 
             $data_evaluaciones[] = [
                 'id_evaluacion'      => $value->id_evaluacion,
@@ -446,7 +533,7 @@ public function salle_promedio_asignatura($periodo, $institucion, $id_area) {
     // Consulta inicial para evaluaciones
     $evaluaciones = DB::SELECT("
         SELECT MAX(se.id_evaluacion) AS id_evaluacion,
-               CONCAT(u.nombres, ' ', u.apellidos) AS nombre_docente, 
+               CONCAT(u.nombres, ' ', u.apellidos) AS nombre_docente,
                u.cedula, u.email, u.idusuario
         FROM salle_evaluaciones se
         JOIN usuario u ON se.id_usuario = u.idusuario
@@ -466,7 +553,7 @@ public function salle_promedio_asignatura($periodo, $institucion, $id_area) {
     }
 
     $data_evaluaciones = ['items' => []];
-    
+
     foreach ($evaluaciones as $key => $value) {
         // Obtener asignaturas
         $asignaturas = DB::SELECT("
@@ -488,8 +575,8 @@ public function salle_promedio_asignatura($periodo, $institucion, $id_area) {
         foreach ($asignaturas as $keyA => $valueA) {
             // Obtener puntaje máximo y obtenido por asignatura
             $puntaje_asignaturas = DB::SELECT("
-                SELECT sa.id_asignatura, sa.nombre_asignatura, 
-                       SUM(sp.puntaje_pregunta) AS puntaje_maximo, 
+                SELECT sa.id_asignatura, sa.nombre_asignatura,
+                       SUM(sp.puntaje_pregunta) AS puntaje_maximo,
                        SUM(spe.calificacion_final) AS puntaje_obtenido
                 FROM salle_preguntas_evaluacion spe
                 JOIN salle_preguntas sp ON spe.id_pregunta = sp.id_pregunta
@@ -517,7 +604,8 @@ public function salle_promedio_asignatura($periodo, $institucion, $id_area) {
         }
 
         // Calcular puntaje_evaluacion como promedio global
-        $puntaje_evaluacion = ($total_maximo_global > 0) ? ($total_obtenido_global * 100) / $total_maximo_global : 0;
+        $promedios_asignaturas = array_column($data_asignaturas, 'puntaje');
+        $puntaje_evaluacion = !empty($promedios_asignaturas) ? array_sum($promedios_asignaturas) / count($promedios_asignaturas) : 0;
         $puntaje_evaluacion = min(round($puntaje_evaluacion, 2), 100);
 
         $data_evaluaciones['items'][$key] = [

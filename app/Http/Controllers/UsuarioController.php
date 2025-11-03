@@ -15,12 +15,14 @@ use App\Models\HistoricoVisitas;
 use Illuminate\Http\Request;
 use App\Quotation;
 use App\Traits\Codigos\TraitCodigosGeneral;
+use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Mail;
 use Cookie;
 use Dirape\Token\Token;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use GuzzleHttp\Client;
 
 class UsuarioController extends Controller
@@ -1883,20 +1885,84 @@ class UsuarioController extends Controller
 
         switch ($action) {
             case 'Get_Busqueda_Representante_Institucion':
-                return $this->busquedaUsuarioxCedula_Nombre_Apellido($request);
+                return $this->busquedaUsuarioxCedula_Nombre_Apellido_Correo($request);
             case 'Get_Busqueda_Representante_InstitucionxID':
                 return $this->busquedaUsuarioxidusuario($request);
+            case 'Get_Busqueda_UsuarioDocentesx_Institucion':
+                return $this->Get_Busqueda_UsuarioDocentesx_Institucion($request);
+            case 'Get_Busqueda_UsuarioxIDUsuarioFICHERO':
+                return $this->Get_Busqueda_UsuarioxIDUsuarioFICHERO($request);
             default:
                 return response()->json(['error' => 'Acción no válida'], 400);
         }
     }
-    public function busquedaUsuarioxCedula_Nombre_Apellido($request)
+    public function busquedaUsuarioxCedula_Nombre_Apellido_Correo(Request $request)
     {
-        $busquedarepresentante  = $request->filtrorepresentante;
+        $busqueda = $request->filtrousuario_buscar;
+
+        // Lista de grupos permitidos
+        $gruposPermitidos = [10, 6, 4, 33, 13, 12];
+
+        // Buscar usuarios por coincidencia en nombres, apellidos o cédula
+        $usuarios = DB::table('usuario as us')
+            ->join('sys_group_users as sg', 'us.id_group', '=', 'sg.id')
+            ->select('us.*', 'sg.level')
+            ->where(function ($q) use ($busqueda) {
+                $q->where('us.nombres', 'like', "%$busqueda%")
+                ->orWhere('us.apellidos', 'like', "%$busqueda%")
+                ->orWhere('us.cedula', 'like', "%$busqueda%")
+                ->orWhere('us.email', 'like', "%$busqueda%");
+            })
+            ->get();
+
+        // Si no hay resultados
+        if ($usuarios->isEmpty()) {
+            return response()->json([
+                'status' => 'no_encontrado',
+                'mensaje' => 'No se encontraron usuarios con esos datos.',
+                'data' => []
+            ]);
+        }
+
+        // Filtrar los usuarios que sí pertenecen a los grupos permitidos
+        $usuariosPermitidos = $usuarios->filter(function ($u) use ($gruposPermitidos) {
+            return in_array($u->id_group, $gruposPermitidos);
+        })->values();
+
+        // Si hay usuarios en grupos permitidos, devolverlos
+        if ($usuariosPermitidos->isNotEmpty()) {
+            return response()->json([
+                'status' => 'ok',
+                'mensaje' => 'Usuarios encontrados.',
+                'data' => $usuariosPermitidos
+            ]);
+        }
+
+        // Si no hay usuarios permitidos pero sí existen coincidencias
+        return response()->json([
+            'status' => 'sin_permiso',
+            'mensaje' => 'El usuario existe, pero no tiene permiso para acceder.',
+            'data' => []
+        ]);
+    }
+
+    public function Get_Busqueda_UsuarioDocentesx_Institucion($request)
+    {
+        $DocentesxInstitucion  = $request->idInstitucion;
+        $usuariosDocentes = DB::SELECT("SELECT us.*, sg.level FROM usuario us
+            INNER JOIN sys_group_users sg on us.id_group = sg.id
+            WHERE us.institucion_idInstitucion = $DocentesxInstitucion
+            AND us.id_group = 6");
+        return $usuariosDocentes;
+    }
+
+    public function Get_Busqueda_UsuarioxIDUsuarioFICHERO($request)
+    {
+        $busquedarepresentante  = $request->idusuario_enviar;
         $usuarios = DB::SELECT("SELECT us.*, sg.level
         FROM usuario us
         INNER JOIN sys_group_users sg on us.id_group = sg.id
-        WHERE us.nombres LIKE '%$busquedarepresentante%' OR us.cedula LIKE '%$busquedarepresentante%' OR us.apellidos LIKE '%$busquedarepresentante%' ");
+        WHERE us.idusuario = '$busquedarepresentante'");
         return $usuarios;
     }
     public function busquedaUsuarioxidusuario($request)
@@ -1906,6 +1972,147 @@ class UsuarioController extends Controller
         FROM usuario us
         WHERE us.idusuario = '$busquedaxid'");
         return $usuarios;
+    }
+    public function PostCrearEditarUsuariosFichero(Request $request)
+    {
+        DB::beginTransaction();
+        try {
+            // Buscar el usuario por su idusuario o crear uno nuevo
+            $userficheronew = User::firstOrNew(['idusuario' => $request->idusuario]);
+
+            try {
+                // Validar los datos del request
+                $datosValidados = $request->validate([
+                    'cedula' => [
+                        'nullable',
+                        'max:15',
+                        Rule::unique('usuario', 'cedula')
+                            ->ignore($userficheronew->idusuario, 'idusuario')
+                    ],
+                    'email' => [
+                        'required',
+                        'email',
+                        'max:255',
+                        Rule::unique('usuario', 'email')
+                            ->ignore($userficheronew->idusuario, 'idusuario')
+                    ],
+                    'nombres' => 'required|string|max:255',
+                    'apellidos' => 'required|string|max:255',
+                    'telefono' => 'required|string|max:20',
+                ]);
+            } catch (\Illuminate\Validation\ValidationException $e) {
+                // Si la validación falla por cédula duplicada
+                if ($e->validator->errors()->has('cedula')) {
+                    return response()->json([
+                        "status" => 0,
+                        "message" => "La cédula o RUC ingresado ya existe en el sistema."
+                    ], 200);
+                }
+
+                // Si la validación falla por email duplicado
+                if ($e->validator->errors()->has('email')) {
+                    return response()->json([
+                        "status" => 0,
+                        "message" => "El correo electrónico ingresado ya existe en el sistema."
+                    ], 200);
+                }
+
+                // Otros errores de validación
+                return response()->json([
+                    "status" => 0,
+                    "message" => $e->validator->errors()->first()
+                ], 400);
+            }
+
+            // Asignar datos validados al modelo
+            $userficheronew->cedula = empty($request->cedula) ? null : $request->cedula;
+            $userficheronew->nombres = $datosValidados['nombres'];
+            $userficheronew->apellidos = $datosValidados['apellidos'];
+            $userficheronew->telefono = $datosValidados['telefono'];
+            $userficheronew->email = $datosValidados['email'];
+            // $userficheronew->password = sha1(md5($datosValidados['cedula']));
+            if (!empty($request->cedula)) {
+                $userficheronew->password = sha1(md5($request->cedula));
+            } else {
+                // Si no hay cédula, asigna un valor por defecto
+                $userficheronew->password = sha1(md5('sin_cedula_' . time()));
+            }
+            $userficheronew->name_usuario = $datosValidados['email'];
+            $userficheronew->fecha_nacimiento = $request->fecha_nacimiento == null || $request->fecha_nacimiento == "null" ? null : $request->fecha_nacimiento;
+            // Valores fijos del sistema
+            $userficheronew->id_group = 6; // DOCENTES
+            $userficheronew->estado_idEstado = 1;
+
+            if ($userficheronew->exists) {
+                $userficheronew->updated_at = now();
+                $userficheronew->modificado_por = $request->modificado_por;
+            } else {
+                $userficheronew->institucion_idInstitucion = $request->institucion_idInstitucion;
+                $userficheronew->idcreadorusuario = $request->idcreadorusuario;
+                $userficheronew->updated_at = now();
+            }
+
+            $userficheronew->save();
+            DB::commit();
+
+            return response()->json([
+                "status" => 1,
+                'message' => 'Se guardó correctamente'
+            ], 200);
+
+        } catch (\Exception $e) {
+            DB::rollback();
+            return response()->json([
+                "status" => 0,
+                "message" => 'Error al guardar los datos: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+    public function actualizarPassword_PerfilUser(Request $request)
+    {
+        // 🔹 Validar datos básicos (solo por seguridad mínima)
+        $request->validate([
+            'idusuario' => 'required',
+            'password_actual' => 'required',
+            'password_nuevo' => 'required',
+        ]);
+
+        // 🔹 Buscar el usuario
+        $usuario = Usuario::find($request->idusuario);
+
+        if (!$usuario) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'Usuario no encontrado.',
+            ]);
+        }
+
+        // 🔹 Verificar contraseña actual
+        $hashIngresado = sha1(md5($request->password_actual));
+        if ($hashIngresado !== $usuario->password) {
+            return response()->json([
+                'status' => 2,
+                'message' => 'La contraseña actual no es correcta.',
+            ]);
+        }
+
+        // 🔹 Validar que la nueva contraseña no sea igual a la actual
+        $hashNueva = sha1(md5($request->password_nuevo));
+        if ($hashNueva === $usuario->password) {
+            return response()->json([
+                'status' => 3,
+                'message' => 'La nueva contraseña no puede ser igual a la anterior.',
+            ]);
+        }
+
+        // 🔹 Actualizar con la nueva contraseña encriptada
+        $usuario->password = sha1(md5($request->password_nuevo));
+        $usuario->save();
+
+        return response()->json([
+            'status' => 1,
+            'message' => 'La contraseña ha sido actualizada correctamente.',
+        ]);
     }
     //Fin Metodos Jeyson
 
@@ -1936,9 +2143,9 @@ class UsuarioController extends Controller
 
             // Buscar el usuario
             $usuario = Usuario::findOrFail($request->idusuario);
-            
+
             // QUITA ESTA LÍNEA: return $usuario;
-            
+
             // Actualizar campos
             $usuario->email = $request->email;
             $usuario->telefono = $request->phone;
@@ -1961,13 +2168,13 @@ class UsuarioController extends Controller
                 'message' => 'Datos de entrada inválidos',
                 'errors' => $e->errors()
             ], 422);
-            
+
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Usuario no encontrado'
             ], 404);
-            
+
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,

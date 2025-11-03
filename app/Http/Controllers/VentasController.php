@@ -1851,6 +1851,30 @@ class VentasController extends Controller
         // Devuelve las ventas con los datos combinados
         return response()->json($ventas);
     }
+
+
+    public function getAllPrefacturasXCliente(Request $request) {
+        $ventas = DB::table('f_venta as fv')
+            ->join('empresas as e', 'fv.id_empresa', '=', 'e.id')
+            ->join('periodoescolar as p', 'fv.periodo_id', '=', 'p.idperiodoescolar')
+            ->join('usuario as u', 'u.cedula', '=', 'fv.ruc_cliente')
+            ->join('institucion as i', 'fv.institucion_id', '=','i.idInstitucion')
+            ->select(
+                'fv.*',
+                DB::raw("concat(u.nombres, ' ', u.apellidos) as clienteUsuario"),
+                'i.nombreInstitucion as clienteInstitucion',
+                'e.descripcion_corta',
+                'p.periodoescolar'
+            )
+            ->where('fv.ruc_cliente', $request->busqueda)
+            ->where('fv.periodo_id', $request->periodo)
+            ->where('fv.idtipodoc', 1)
+            ->where('fv.est_ven_codigo', '<>', 3)
+            ->get();
+    
+        return response()->json($ventas);
+    }
+    
     public function getAllPrefacturasNotas(Request $request) {
         $ventas = DB::table('f_venta as fv')
             ->join('empresas as e', 'fv.id_empresa', '=', 'e.id')
@@ -1916,6 +1940,32 @@ class VentasController extends Controller
         // Devolver los resultados
         return response()->json($resultados);
     }
+
+    public function getCantidadFacturadaXcliente(Request $request)
+    {
+        // Validar los parámetros de entrada
+        $request->validate([
+            'cedula' => 'required',
+            'empresa' => 'required|integer',
+            'periodo' => 'required|integer',
+        ]);
+
+        // Ejecutar la consulta
+        $resultados = DB::table('f_venta_agrupado as fva')
+            ->join('f_detalle_venta_agrupado as fdva', 'fva.id_factura', '=', 'fdva.id_factura')
+            ->join('usuario as u', 'u.idusuario', '=', 'fva.ven_cliente')
+            ->select('fdva.pro_codigo', DB::raw('SUM(fdva.det_ven_cantidad) as det_ven_cantidad'))
+            ->where('u.cedula', $request->cedula)
+            ->where('fva.id_empresa', $request->empresa)
+            ->where('fva.periodo_id', $request->periodo)
+            ->where('fva.est_ven_codigo',0)
+            ->groupBy('fdva.pro_codigo')
+            ->get();
+
+        // Devolver los resultados
+        return response()->json($resultados);
+    }
+
     public function Get_PREFactura(Request $request){
         $query = DB::SELECT("SELECT dv.det_ven_codigo, dv.pro_codigo, dv.det_ven_dev, dv.det_ven_cantidad , dv.det_ven_valor_u,
         l.descripcionlibro, ls.nombre, s.nombre_serie, ls.id_serie, a.area_idarea, ls.year, fv.periodo_id, l.idlibro FROM f_detalle_venta as dv
@@ -2048,6 +2098,7 @@ class VentasController extends Controller
         if($request->getReporteContratosPagos)          { return $this->getReporteContratosPagos($request); }
         if($request->GetReportePedidosPagos)            { return $this->GetReportePedidosPagos($request); }
         if($request->GetReportePorLibro)                { return $this->GetReportePorLibro($request); }
+        if($request->getReportePedidoPorFechas)         { return $this->getReportePedidoPorFechas($request); }
     }
 
     //api:get/metodosGetVentas?GetReportePedidosPagos=1&periodo=25
@@ -2443,6 +2494,52 @@ class VentasController extends Controller
         return $final;
     }
 
+    //api:get/metodosGetVentas?getReportePedidoPorFechas=1&fechaInicio=2022-01-01&fechaFin=2025-10-31&periodo=26
+    public function getReportePedidoPorFechas(Request $request)
+    {
+        $id_periodo = $request->input('periodo');
+        $fechaInicio = $request->input('fechaInicio');
+        $fechaFin = $request->input('fechaFin');
+
+        if (!$id_periodo || !$fechaInicio || !$fechaFin) {
+            return response()->json(['status' => '0', 'message' => 'Faltan parámetros'], 200);
+        }
+
+        $nuevo = ($id_periodo <= $this->tr_periodoPedido) ? 0 : 1;
+        $getPedidos = [];
+
+        if ($nuevo == 0) {
+            $getPedidos = $this->pedidosRepository->pedidosPorFechasAnterior($fechaInicio, $fechaFin, $id_periodo);
+        } else {
+            $getPedidos = $this->pedidosRepository->pedidosPorFechasNuevo($fechaInicio, $fechaFin, $id_periodo);
+        }
+
+        // 🔹 Convertimos a colección y agrupamos por pro_codigo
+        $pedidos = collect($getPedidos)
+            ->groupBy('pro_codigo')
+            ->map(function ($items) {
+                $primero = $items->first();
+                $totalCantidad = $items->sum('cantidad');
+
+                return (object) [
+                    'pro_codigo' => $primero->pro_codigo,
+                    'nombre_libro' => $primero->nombre_libro,
+                    'precio' => $primero->precio,
+                    'cantidad' => $totalCantidad,
+                    'idlibro' => $primero->idlibro,
+                ];
+            })
+            ->values()
+            ->toArray();
+        // multiplicamos precio * cantidad y formateamos
+        foreach ($pedidos as $key => $item) {
+            $total = $item->precio * $item->cantidad;
+            $pedidos[$key]->total = number_format((float)$total, 2, '.', '');
+        }
+        return response()->json($pedidos, 200);
+    }
+
+
     //api:get/metodosGetVentas?getComboDetalleVenta=1&id_empresa=1&ven_codigo=PF-S24-FR-0000192
     public function getProductoDetalleVenta(Request $request) {
         // Recibir los parámetros
@@ -2680,14 +2777,14 @@ class VentasController extends Controller
 
                         (SELECT SUM(a.ven_valor) FROM  f_venta_agrupado a
                             WHERE a.periodo_id = '$item->idperiodoescolar'
-                            AND a.est_ven_codigo <> 1
+                            AND a.est_ven_codigo = 0
                             and a.estadoPerseo = 1
                         ) AS totalPerseo,
 
                         (SELECT SUM(d.det_ven_cantidad) FROM  f_venta_agrupado a
                             JOIN f_detalle_venta_agrupado d ON d.id_factura = a.id_factura
                             WHERE a.periodo_id = '$item->idperiodoescolar'
-                            AND a.est_ven_codigo <> 1
+                            AND a.est_ven_codigo = 0
                             and a.estadoPerseo = 1
                         ) AS totalCantidadPerseo;
                 ");
@@ -3515,6 +3612,34 @@ class VentasController extends Controller
         return response()->json($resultados);
     }
 
+    public function getCantidadNotaCreditoXcliente(Request $request)
+    {
+        // Validar los parámetros de entrada
+        $request->validate([
+            'cedula' => 'required',
+            'empresa' => 'required|integer',
+            'periodo' => 'required|integer',
+        ]);
+
+        // Ejecutar la consulta
+        $resultados = DB::table('f_venta as fva')
+            ->join('f_detalle_venta as fdva', function ($join) {
+                $join->on('fdva.ven_codigo', '=', 'fva.ven_codigo')
+                    ->on('fdva.id_empresa', '=', 'fva.id_empresa');
+            })
+            ->select('fdva.pro_codigo', DB::raw('SUM(fdva.det_ven_cantidad) as det_ven_cantidad'))
+            ->where('fva.ruc_cliente', $request->cedula)
+            ->where('fva.id_empresa', $request->empresa)
+            ->where('fva.periodo_id', $request->periodo)
+            ->where('fva.est_ven_codigo', '<>', 3)
+            ->where('fva.idtipodoc',16)
+            ->groupBy('fdva.pro_codigo')
+            ->get();
+
+        // Devolver los resultados
+        return response()->json($resultados);
+    }
+
     public function getNotasIntercambio(Request $request)
     {
         $institucion = $request->input('institucion');
@@ -3561,6 +3686,53 @@ class VentasController extends Controller
         ]);
     }
 
+    public function getNotasIntercambioXcliente(Request $request)
+    {
+        $cedula = $request->input('cedula');
+        $periodo = $request->input('periodo');
+
+        // Ejecutar la primera consulta y obtener las notas
+        $notas = DB::select("SELECT
+                CASE
+                    WHEN COUNT(DISTINCT f.doc_intercambio) = 1 THEN
+                        MAX(f.doc_intercambio)
+                    ELSE
+                        GROUP_CONCAT(DISTINCT
+                            CASE WHEN f.doc_intercambio <> '' THEN f.doc_intercambio END
+                            ORDER BY f.doc_intercambio SEPARATOR ', ')
+                END AS intercambio_doc,
+                COUNT(f.doc_intercambio) AS total_intercambio
+            FROM f_detalle_venta f
+            LEFT JOIN f_venta fv ON fv.ven_codigo = f.ven_codigo AND fv.id_empresa = f.id_empresa
+            WHERE fv.ruc_cliente = ?
+            AND fv.periodo_id = ?
+            AND fv.idtipodoc = 1
+            AND f.doc_intercambio IS NOT NULL
+            GROUP BY fv.institucion_id, fv.periodo_id, fv.idtipodoc", [$cedula, $periodo]);
+
+        if (count($notas) === 0) {
+            $notas[] = (object)[
+                'intercambio_doc' => [],
+                'total_intercambio' => 0
+            ];
+        }
+
+        // Transformar el campo intercambio_doc en un arreglo de documentos
+        foreach ($notas as $key => $item) {
+            // Si intercambio_doc no está vacío
+            if (!empty($item->intercambio_doc)) {
+                // Convertir la cadena de documentos en un arreglo
+                $item->intercambio_doc = explode(',', $item->intercambio_doc);
+            }
+        }
+
+        // Devolver los datos con las notas y detalles integrados
+        return response()->json([
+            'notas' => $notas,
+        ]);
+    }
+
+
     public function getNotasCredito(Request $request)
     {
         $institucion = $request->input('institucion');
@@ -3573,6 +3745,23 @@ class VentasController extends Controller
             WHERE fv.institucion_id = ?
             AND fv.periodo_id = ?
             AND fv.idtipodoc = 16", [$institucion, $periodo]);
+
+        // Devolver los datos con las notas y detalles integrados
+        return $notas;
+    }
+
+    public function getNotasCreditoXcliente(Request $request)
+    {
+        $cedula = $request->input('cedula');
+        $periodo = $request->input('periodo');
+
+        // Ejecutar la primera consulta y obtener las notas
+        $notas = DB::select("SELECT DISTINCT fv.*
+            FROM f_detalle_venta f
+            LEFT JOIN f_venta fv ON fv.ven_codigo = f.ven_codigo AND fv.id_empresa = f.id_empresa
+            WHERE fv.ruc_cliente = ?
+            AND fv.periodo_id = ?
+            AND fv.idtipodoc = 16", [$cedula, $periodo]);
 
         // Devolver los datos con las notas y detalles integrados
         return $notas;
@@ -3594,6 +3783,26 @@ class VentasController extends Controller
         // Devolver los datos con las notas y detalles integrados
         return $notas;
     }
+
+
+    public function getNotasCLienteXcliente(Request $request)
+    {
+        $cedula = $request->input('cedula');
+        $periodo = $request->input('periodo');
+
+        // Ejecutar la primera consulta y obtener las notas
+        $notas = DB::select("SELECT fv.*, i.nombreInstitucion
+            FROM f_venta fv
+            LEFT JOIN institucion i ON i.idInstitucion = fv.institucion_id
+            WHERE fv.ruc_cliente = $cedula
+            AND fv.periodo_id = $periodo
+            AND (fv.est_ven_codigo = 13
+            OR fv.idtipodoc = 16)");
+
+        // Devolver los datos con las notas y detalles integrados
+        return $notas;
+    }
+
 
     public function Get_PREFacturaCodigos(Request $request)
     {

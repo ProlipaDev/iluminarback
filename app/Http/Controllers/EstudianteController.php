@@ -372,7 +372,7 @@ class EstudianteController extends Controller
         // AND tarea.usuario_idusuario IS NULL OR tarea.usuario_idusuario = '$request->idusuario'
         // ");
         $tarea = DB::select("
-            SELECT tarea.*
+            SELECT tarea.*, contenido.url, contenido.nombre
             FROM tarea
             LEFT JOIN contenido ON contenido.idcontenido = tarea.contenido_idcontenido
             WHERE tarea.curso_idcurso = ?

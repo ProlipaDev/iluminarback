@@ -19,6 +19,9 @@ class CodigosLibrosDevolucionDesarmadoSon extends Model
         'liquidado_regalado',
         'precio',
         'estado',
+        'documento',
+        'factura',
+        'codigo_paquete',
     ];
 
     public function devolucionHeader()

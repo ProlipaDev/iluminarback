@@ -124,4 +124,24 @@ class CiudadController extends Controller
         ->get();
         return $dato;
     }
+
+    //METODOS JEYSON INICIO
+    public function TodoProvincia()
+    {
+        $ciudades = DB::SELECT("SELECT * FROM provincia");
+        return $ciudades;
+    }
+    public function TodoCiudadoCanton(Request $request)
+    {
+        $provincia_id = $request->input('provincia_idprovincia'); // o $request->provincia_idprovincia
+        $ciudades = DB::select("SELECT * FROM ciudad WHERE provincia_idprovincia = ?", [$provincia_id]);
+        return $ciudades;
+    }
+    public function TodoParroquia(Request $request)
+    {
+        $idciudad = $request->input('idciudad'); // o $request->provincia_idprovincia
+        $ciudades = DB::SELECT("SELECT * FROM parroquia WHERE idciudad = ?", [$idciudad]);
+        return $ciudades;
+    }
+    //METODOS JEYSON FIN
 }

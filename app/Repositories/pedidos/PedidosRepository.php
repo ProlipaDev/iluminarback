@@ -758,4 +758,128 @@ class  PedidosRepository extends BaseRepository
         ");
         return $getAlcances;
     }
+
+    public function pedidosPorFechasAnterior($fecha_inicio, $fecha_fin, $periodo){
+        $query = DB::SELECT("SELECT
+            ls.codigo_liquidacion AS pro_codigo,
+            l.nombrelibro AS nombre_libro,
+            pfp.pfn_pvp AS precio,
+            SUM(COALESCE(pv.valor, 0)) AS cantidad,
+            'Pedido' AS tipo,
+            pv.id_libro AS idlibro
+
+        FROM pedidos_val_area pv
+        LEFT JOIN pedidos p ON pv.id_pedido = p.id_pedido
+        LEFT JOIN libro l ON l.idlibro = pv.id_libro
+        LEFT JOIN libros_series ls ON ls.idLibro = l.idlibro
+        LEFT JOIN pedidos_formato_new pfp ON pfp.idlibro = pv.id_libro AND pfp.idperiodoescolar = '$periodo'
+
+        WHERE p.contrato_generado IS NOT NULL
+        AND p.estado = '1'
+        AND p.tipo = '0'
+        AND p.id_periodo = '$periodo'
+        AND pv.alcance = 0
+        AND p.created_at >= '$fecha_inicio'
+        AND p.created_at < '$fecha_fin'
+
+        GROUP BY
+            ls.codigo_liquidacion,
+            l.nombrelibro,
+            pfp.pfn_pvp
+
+        UNION ALL
+
+        SELECT
+            ls.codigo_liquidacion AS pro_codigo,
+            l.nombrelibro AS nombre_libro,
+            pfp.pfn_pvp AS precio,
+            SUM(COALESCE(pv.valor, 0)) AS cantidad,
+            'Alcance' AS tipo,
+            pv.id_libro AS idlibro
+
+        FROM pedidos_val_area pv
+        LEFT JOIN pedidos_alcance a ON a.id = pv.alcance
+        LEFT JOIN pedidos p ON p.id_pedido = pv.id_pedido
+        LEFT JOIN libro l ON l.idlibro = pv.id_libro
+        LEFT JOIN libros_series ls ON ls.idLibro = l.idlibro
+        LEFT JOIN pedidos_formato_new pfp ON pfp.idlibro = pv.id_libro
+
+        WHERE p.contrato_generado IS NOT NULL
+        AND p.estado = '1'
+        AND p.tipo = '0'
+        AND p.id_periodo = '$periodo'
+        AND pfp.idperiodoescolar = '$periodo'
+        AND pv.alcance <> 0
+        AND a.estado_alcance = '1'
+        AND a.created_at >= '$fecha_inicio'
+        AND a.created_at < '$fecha_fin'
+
+        GROUP BY
+            ls.codigo_liquidacion,
+            l.nombrelibro,
+            pfp.pfn_pvp
+
+        ORDER BY
+            tipo,
+            nombre_libro;
+        ");
+        return $query;
+    }
+
+    public function pedidosPorFechasNuevo($fecha_inicio, $fecha_fin, $periodo){
+        $query = DB::SELECT("SELECT
+            ls.codigo_liquidacion AS pro_codigo,
+            l.nombrelibro AS nombre_libro,
+            pfp.pfn_pvp AS precio,
+            SUM(pv.pvn_cantidad) AS cantidad,
+            'Pedido' AS tipo,
+            pv.idlibro AS idlibro
+        FROM pedidos_val_area_new pv
+        LEFT JOIN pedidos p ON pv.id_pedido = p.id_pedido
+        LEFT JOIN libro l ON l.idlibro = pv.idlibro
+        LEFT JOIN libros_series ls ON ls.idLibro = l.idlibro
+        LEFT JOIN pedidos_formato_new pfp ON pfp.idlibro = pv.idlibro
+        WHERE p.estado = '1'
+        AND p.tipo = '0'
+        AND p.id_periodo = '$periodo'
+        AND pfp.idperiodoescolar = '$periodo'
+        AND pv.pvn_tipo = '0'
+        AND p.created_at >= '$fecha_inicio'
+        AND p.created_at <= '$fecha_fin'
+        GROUP BY
+            ls.codigo_liquidacion,
+            l.nombrelibro,
+            pfp.pfn_pvp
+
+        UNION ALL
+
+        SELECT
+            ls.codigo_liquidacion AS pro_codigo,
+            l.nombrelibro AS nombre_libro,
+            pfp.pfn_pvp AS precio,
+            SUM(pv.pvn_cantidad) AS cantidad,
+            'Alcance' AS tipo,
+            pv.idlibro AS idlibro
+        FROM pedidos_val_area_new pv
+        LEFT JOIN pedidos p ON p.id_pedido = pv.id_pedido
+        LEFT JOIN pedidos_alcance a ON a.id = pv.pvn_tipo
+        LEFT JOIN libro l ON l.idlibro = pv.idlibro
+        LEFT JOIN libros_series ls ON ls.idLibro = l.idlibro
+        LEFT JOIN pedidos_formato_new pfp ON pfp.idlibro = pv.idlibro
+        WHERE p.estado = '1'
+        AND p.tipo = '0'
+        AND p.id_periodo = '$periodo'
+        AND pfp.idperiodoescolar = '$periodo'
+        AND pv.pvn_tipo <> '0'
+        AND a.estado_alcance = '1'
+        AND a.created_at >= '$fecha_inicio'
+        AND a.created_at <= '$fecha_fin'
+        GROUP BY
+            ls.codigo_liquidacion,
+            l.nombrelibro,
+            pfp.pfn_pvp;
+
+        ");
+        return $query;
+    }
 }

@@ -124,6 +124,7 @@ class  DevolucionRepository extends BaseRepository
             ->groupBy('dv.ven_codigo') // Agrupar por ven_codigo para obtener los totales
             ->havingRaw('COALESCE(SUM(dg.det_ven_cantidad - dg.det_ven_dev), 0) >= ?', [$cantidadNecesaria])
             ->get(); // Obtener todas las facturas disponibles
+
         if ($disponiblePrefactura->isEmpty()) {
             return null; // Si no hay prefactura disponible que cumpla con la cantidad necesaria
         }
@@ -138,13 +139,12 @@ class  DevolucionRepository extends BaseRepository
             ->where('cs.documento', $factura->ven_codigo)
             ->where('cs.tipo_codigo', '1')
             ->where('cs.estado', 0)
-            ->when($codigo, function($query) use ($codigo) {
-                $query->where('cs.pro_codigo', '<>', $codigo); // Excluir el código si se pasa como parámetro
+            ->when($pro_codigo, function($query) use ($pro_codigo) {
+                $query->where('cs.pro_codigo', '<>', $pro_codigo); // Excluir el código si se pasa como parámetro
             })
             ->sum('cs.combo_cantidad'); // SUMAR combo_cantidad
             // Calcular la cantidad disponible restando la cantidad reservada
             $cantidadDisponible = $factura->cantidad - $cantidadReservadaCreada;
-
             // Verificar si la cantidad disponible es suficiente
             if ($cantidadDisponible >= $cantidadNecesaria) {
                 // Si hay suficiente cantidad, asignamos la cantidad disponible
@@ -399,7 +399,7 @@ class  DevolucionRepository extends BaseRepository
             throw new \Exception("No se pudo actualizar los valores del documento f_vent2a.");
         }
     }
-    public function guardarComboSon($combo, $cantidad, $precio, $id_cliente, $id_periodo, $id_empresa, $id_devolucion, $ven_codigo)
+    public function guardarComboSon($combo, $cantidad_hijos, $precio, $id_cliente, $id_periodo, $id_empresa, $id_devolucion, $ven_codigo)
     {
         try {
             $getLibro = LibroSerie::where('codigo_liquidacion', $combo)->first();
@@ -408,42 +408,24 @@ class  DevolucionRepository extends BaseRepository
             }
 
             $id_libro = $getLibro->idLibro;
-
-            // Validar si ya se ha devuelto en el módulo anterior
-            $existeComboAnterior = $this->validateComboCreado($combo, $id_empresa, $id_devolucion);
-            if ($existeComboAnterior->count() > 0) {
-                $getcombo_anterior = $existeComboAnterior[0]->combo_anterior;
-                // si anterior y esta devuelto no devolver
-                if($getcombo_anterior == 1){
-                    $getcombo_cantidad_devuelta = (int) $existeComboAnterior[0]->combo_cantidad_devuelta;
-                    if ($getcombo_cantidad_devuelta > 0) {
-                        return 2; // Ya devuelto, no guardar
-                    }
-                }
-            }
-
             $existeCombo = $this->validateComboCreadoXDocumento($combo, $id_empresa, $id_devolucion, $ven_codigo);
             if ($existeCombo->count() > 0) {
                 $guardarCombo = CodigosLibrosDevolucionSon::find($existeCombo[0]->id);
-                // $getcombo_cantidad_devuelta = (int) $guardarCombo->combo_cantidad_devuelta;
-                // if ($getcombo_cantidad_devuelta > 0) {
-                //     return 2; // Ya devuelto, no guardar
-                // }
-                $guardarCombo->combo_cantidad = $cantidad + $guardarCombo->combo_cantidad;
+                $guardarCombo->combo_cantidad = $cantidad_hijos - $existeCombo[0]->combo_cantidad_devuelta;
             } else {
                 $guardarCombo = new CodigosLibrosDevolucionSon();
-                $guardarCombo->combo_cantidad = $cantidad;
+                $guardarCombo->combo_cantidad = $cantidad_hijos;
             }
 
             $guardarCombo->codigoslibros_devolucion_id = $id_devolucion;
-            $guardarCombo->id_empresa = $id_empresa;
-            $guardarCombo->pro_codigo = $combo;
-            $guardarCombo->tipo_codigo = 1;
-            $guardarCombo->id_cliente = $id_cliente;
-            $guardarCombo->id_periodo = $id_periodo;
-            $guardarCombo->id_libro = $id_libro;
-            $guardarCombo->precio = $precio;
-            $guardarCombo->documento = $ven_codigo;
+            $guardarCombo->id_empresa       = $id_empresa;
+            $guardarCombo->pro_codigo       = $combo;
+            $guardarCombo->tipo_codigo      = 1;
+            $guardarCombo->id_cliente       = $id_cliente;
+            $guardarCombo->id_periodo       = $id_periodo;
+            $guardarCombo->id_libro         = $id_libro;
+            $guardarCombo->precio           = $precio;
+            $guardarCombo->documento        = $ven_codigo;
             $guardarCombo->save();
 
             return 1;

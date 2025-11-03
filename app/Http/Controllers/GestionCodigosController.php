@@ -113,14 +113,21 @@ class GestionCodigosController extends Controller
 
             //editar
             foreach($codigos as $key => $item){
-                $codigo     = CodigosLibros::findOrFail($item->codigo);
-                $old_values = clone $codigo;
-                $comentario = $request->comentario;
-                $codigo_union = $codigo->codigo_union;
-                $bc_periodo  = $codigo->bc_periodo;
+                $codigo         = CodigosLibros::findOrFail($item->codigo);
+                $old_values     = clone $codigo;
+                $comentario     = $request->comentario;
+                $codigo_union   = $codigo->codigo_union;
+                $bc_periodo     = $codigo->bc_periodo;
+                $verificacionLiquidada = null; // para el historico pero para quitar reporte
+                $contratoLiquidado     = null; // para el historico pero para quitar reporte
+                $verif1Codigo      = $codigo->verif1;
+                $verif2Codigo      = $codigo->verif2;
+                $verif3Codigo      = $codigo->verif3;
+                $verif4Codigo      = $codigo->verif4;
+                $verif5Codigo      = $codigo->verif5;
                 //update
                 if($request->chkIdusuario                   == '1') $codigo->idusuario                  = $request->idusuario;
-                if($request->chkBc_Estado                   == '1') $codigo->estado                     = $request->estado;
+                if($request->chk_estado                     == '1') $codigo->estado                     = $request->estado;
                 if($request->chkId_periodo                  == '1') $codigo->id_periodo                 = $request->id_periodo;
                 if($request->chkContrato                    == '1') $codigo->contrato                   = $request->contrato;
                 if($request->chkBc_Venta_lista_institucion  == '1') $codigo->venta_lista_institucion    = $request->venta_lista_institucion;
@@ -130,7 +137,7 @@ class GestionCodigosController extends Controller
                 if($request->chkBc_Verif4                   == '1') $codigo->verif4                     = $request->verif4;
                 if($request->chkBc_Verif5                   == '1') $codigo->verif5                     = $request->verif5;
                 if($request->chkEstado_liquidacion          == '1') $codigo->estado_liquidacion         = $request->estado_liquidacion;
-                if($request->chk_estado                     == '1') $codigo->bc_estado                  = $request->bc_estado;
+                if($request->chkBc_estado                   == '1') $codigo->bc_estado                  = $request->bc_estado;
                 if($request->chkBc_Bc_institucion           == '1') $codigo->bc_institucion             = $request->bc_institucion;
                 if($request->chkBc_Bc_periodo               == '1') $codigo->bc_periodo                 = $request->bc_periodo;
                 if($request->chkBc_Venta_estado             == '1') $codigo->venta_estado               = $request->venta_estado;
@@ -141,6 +148,41 @@ class GestionCodigosController extends Controller
                 if($request->chkCombo                       == '1') $codigo->combo                      = $request->combo;
                 if($request->chkCodigo_combo                == '1') $codigo->codigo_combo               = $request->codigo_combo;
                 if($request->chkFactura                     == '1') $codigo->factura                    = $request->factura;
+                if($request->chkDocumento_devolucion        == '1') $codigo->documento_devolucion       = $request->documento_devolucion;
+                if($request->chkDevuelto_proforma           == '1') $codigo->devuelto_proforma          = $request->devuelto_proforma;
+                if($request->chkQuitar_de_reporte             == '1') {
+                    // restaurar de quitar reporte
+                    if($request->quitar_de_reporte == '0'){
+                        // Quitar del histórico
+                        HistoricoCodigos::where('codigo_libro', $item->codigo)
+                            ->where('devueltos_liquidados', $codigo->contrato) // asegurarse de que coincida con el contrato
+                            ->update([
+                                'devueltos_liquidados' => null,
+                            ]);
+                    }
+                    else{
+                        $contratoLiquidado     = $codigo->contrato; // para el historico pero para quitar reporte
+                        // traer el dato verif1Codigo que sea mayor a 0 para guardar en el historico
+                        if($verif1Codigo > 0){
+                            $verificacionLiquidada = $verif1Codigo;
+                        }else if($verif2Codigo > 0){
+                            $verificacionLiquidada = $verif2Codigo;
+                        }else if($verif3Codigo > 0){
+                            $verificacionLiquidada = $verif3Codigo;
+                        }else if($verif4Codigo > 0){
+                            $verificacionLiquidada = $verif4Codigo;
+                        }else if($verif5Codigo > 0){
+                            $verificacionLiquidada = $verif5Codigo;
+                        }else{
+                            $arrayProblemas[] = [
+                                "codigo" => $item->codigo,
+                                "message" => "No se pudo determinar la verificación liquidada para el código."
+                            ];
+                            continue;
+                        }
+                    }
+                    $codigo->quitar_de_reporte          = $request->quitar_de_reporte;
+                }
                 // validacion codigo_combo
                 if($request->chkCodigo_combo                == '1'){
                     //validar que el combo exista en la codigos_combos columna codigo
@@ -156,10 +198,10 @@ class GestionCodigosController extends Controller
                 $codigo->save();
                 if($codigo){
                     //Guardar en el historico
-                    $this->GuardarEnHistorico($request->user_created,$request->institucion_id,$bc_periodo,$item->codigo,$request->user_created,$comentario,$old_values,json_encode($codigo->getAttributes()));
+                    $this->GuardarEnHistorico($request->user_created,$request->institucion_id,$bc_periodo,$item->codigo,$request->user_created,$comentario,$old_values,json_encode($codigo->getAttributes()),$contratoLiquidado,$verificacionLiquidada);
                     //actualizar codigo_union si la opcion esta seleccionada
                     if($withCodigoUnion == "1"){
-                        $this->actualizarCodigoUnion($codigo_union,$request);
+                        $this->actualizarCodigoUnion($codigo_union,$request,$verificacionLiquidada,$contratoLiquidado);
                         $contador++;
                     }else{
                         $contador++;
@@ -183,14 +225,15 @@ class GestionCodigosController extends Controller
         }
     }
 
-    public function actualizarCodigoUnion($codigo_union, $request)
+    public function actualizarCodigoUnion($codigo_union, $request, $verificacionLiquidada, $contratoLiquidado)
     {
         $codigoActualizar = CodigosLibros::findOrFail($codigo_union);
          // 👉 Clonar antes de hacer cambios para conservar los valores originales
-        $old_values = clone $codigoActualizar;
-
+        $old_values             = clone $codigoActualizar;
+        $verificacionLiquidada  = $verificacionLiquidada; // para el historico pero para quitar reporte
+        $contratoLiquidado      = $contratoLiquidado; // para el historico pero para quitar reporte
         if($request->chkIdusuario                   == '1') $codigoActualizar->idusuario                  = $request->idusuario;
-        if($request->chkBc_Estado                   == '1') $codigoActualizar->estado                     = $request->estado;
+        if($request->chk_estado                     == '1') $codigoActualizar->estado                     = $request->estado;
         if($request->chkId_periodo                  == '1') $codigoActualizar->id_periodo                 = $request->id_periodo;
         if($request->chkContrato                    == '1') $codigoActualizar->contrato                   = $request->contrato;
         if($request->chkBc_Venta_lista_institucion  == '1') $codigoActualizar->venta_lista_institucion    = $request->venta_lista_institucion;
@@ -200,7 +243,7 @@ class GestionCodigosController extends Controller
         if($request->chkBc_Verif4                   == '1') $codigoActualizar->verif4                     = $request->verif4;
         if($request->chkBc_Verif5                   == '1') $codigoActualizar->verif5                     = $request->verif5;
         if($request->chkEstado_liquidacion          == '1') $codigoActualizar->estado_liquidacion         = $request->estado_liquidacion;
-        if($request->chk_estado                     == '1') $codigoActualizar->bc_estado                  = $request->bc_estado;
+        if($request->chkBc_estado                   == '1') $codigoActualizar->bc_estado                  = $request->bc_estado;
         if($request->chkBc_Bc_institucion           == '1') $codigoActualizar->bc_institucion             = $request->bc_institucion;
         if($request->chkBc_Bc_periodo               == '1') $codigoActualizar->bc_periodo                 = $request->bc_periodo;
         if($request->chkBc_Venta_estado             == '1') $codigoActualizar->venta_estado               = $request->venta_estado;
@@ -210,7 +253,23 @@ class GestionCodigosController extends Controller
         if($request->chkCombo                       == '1') $codigoActualizar->combo                      = $request->combo;
         if($request->chkCodigo_combo                == '1') $codigoActualizar->codigo_combo               = $request->codigo_combo;
         if($request->chkFactura                     == '1') $codigoActualizar->factura                    = $request->factura;
-
+        if($request->chkDocumento_devolucion        == '1') $codigoActualizar->documento_devolucion       = $request->documento_devolucion;
+        if($request->chkDevuelto_proforma           == '1') $codigoActualizar->devuelto_proforma          = $request->devuelto_proforma;
+        if($request->chkQuitar_de_reporte           == '1') {
+            // restaurar de quitar reporte
+            if($request->quitar_de_reporte == '0'){
+                // Quitar del histórico
+                HistoricoCodigos::where('codigo_libro', $codigo_union)
+                    ->where('devueltos_liquidados', $codigoActualizar->contrato) // asegurarse de que coincida con el contrato
+                    ->update([
+                        'devueltos_liquidados' => null,
+                    ]);
+            }
+            else{
+                $contratoLiquidado     = $codigoActualizar->contrato; // para el historico pero para quitar reporte
+            }
+            $codigoActualizar->quitar_de_reporte          = $request->quitar_de_reporte;
+        }
         $codigoActualizar->save();
 
         // Guardar en el histórico
@@ -222,7 +281,9 @@ class GestionCodigosController extends Controller
             $request->user_created,
             $request->comentario,
             $old_values,
-            json_encode($codigoActualizar->getAttributes())
+            json_encode($codigoActualizar->getAttributes()),
+            $contratoLiquidado,
+            $verificacionLiquidada
         );
     }
 

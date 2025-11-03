@@ -1306,33 +1306,53 @@ class Pedidos2Controller extends Controller
          return $datos;
     }
     //API:POST/pedidos2/pedidos/crearUsuario=1
-    public function crearUsuario($request){
-        $password                           = sha1(md5($request->cedula));
-        $email                              = $request->email;
-        //si el email es nulo o vacio guardar la cedula en el email
-        if($email == null || $email == ""){
-            $email = $request->cedula;
+    public function crearUsuario($request)
+    {
+        $password = sha1(md5($request->cedula));
+    
+        // 🔹 Obtener el valor original del campo email
+        $emailRaw = isset($request->email) ? trim($request->email) : '';
+    
+        // 🔹 Si el email está vacío o nulo → usar la cédula
+        if ($emailRaw == '' || $emailRaw == null) {
+            $emailRaw = $request->cedula;
         }
-        $user                               = new User();
-        $user->cedula                       = $request->cedula;
-        $user->nombres                      = $request->nombres;
-        $user->apellidos                    = $request->apellidos;
-        $user->name_usuario                 = $email;
-        $user->password                     = $password;
-        $user->email                        = $email;
-        $user->id_group                     = $request->id_grupo;
-        $user->institucion_idInstitucion    = $request->institucion;
-        $user->estado_idEstado              = 1;
-        $user->idcreadorusuario             = $request->user_created;
-        $user->telefono                     = $request->telefono;
+    
+        // 🔹 Separar los correos si hay varios (por salto de línea, coma o punto y coma)
+        $emailList = preg_split("/[\r\n,;]+/", $emailRaw);
+        $emailList = array_filter(array_map('trim', $emailList)); // limpiar
+    
+        // 🔹 Tomar el primer correo o la cédula si no hay ninguno válido
+        $emailFirst = (count($emailList) > 0) ? reset($emailList) : $request->cedula;
+    
+        // 🔹 Preparar el campo "email" (todos los correos o la cédula)
+        $emailFinal = (count($emailList) > 0) ? implode('; ', $emailList) : $request->cedula;
+    
+        // 🔹 Crear el usuario
+        $user = new User();
+        $user->cedula = $request->cedula;
+        $user->nombres = $request->nombres;
+        $user->apellidos = $request->apellidos;
+        $user->name_usuario = $emailFirst; // ✅ solo el primero o la cédula
+        $user->password = $password;
+        $user->email = $emailFinal; // ✅ todos los correos o la cédula
+        $user->id_group = $request->id_grupo;
+        $user->institucion_idInstitucion = $request->institucion;
+        $user->estado_idEstado = 1;
+        $user->idcreadorusuario = $request->user_created;
+        $user->telefono = $request->telefono;
         $user->save();
-        $query = DB::SELECT("SELECT u.idusuario,u.cedula,u.nombres,u.apellidos,u.email,u.telefono,
-          CONCAT_WS(' ', u.nombres, u.apellidos) AS usuario
-        FROM usuario u
-        WHERE u.cedula = '$request->cedula'
+    
+        $query = DB::SELECT("
+            SELECT u.idusuario, u.cedula, u.nombres, u.apellidos, u.email, u.telefono,
+                   CONCAT_WS(' ', u.nombres, u.apellidos) AS usuario
+            FROM usuario u
+            WHERE u.cedula = '$request->cedula'
         ");
+    
         return $query;
     }
+    
     //API:POST/pedidos2/pedidos/updateClienteInstitucion=1
     public function updateClienteInstitucion($request){
         $institucion                                = Institucion::findOrFail($request->id_institucion);

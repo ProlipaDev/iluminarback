@@ -146,7 +146,8 @@ class InstitucionController extends Controller
             'vendedorInstitucion' => 'required',
             'region_idregion' => 'required',
             'solicitudInstitucion' => 'required',
-            'ciudad_id' => 'required',
+            'idprovincia' => 'required',
+            'idciudad' => 'required',
             // 'zona_id' => 'required', se debe quitar cuando la zona sea obligatoria
             'tipo_institucion' => 'required',
         ]);
@@ -189,17 +190,21 @@ class InstitucionController extends Controller
         $cambio->telefonoInstitucion            = $request->telefonoInstitucion;
         $cambio->email                          = $request->email == null || $request->email == "null" ? null : $request->email;
         $cambio->representante_legal            = $request->representante_legal == null || $request->representante_legal == "null" ? null : $request->representante_legal;
+        $cambio->fecha_fundacion                = $request->fecha_fundacion == null || $request->fecha_fundacion == "null" ? null : $request->fecha_fundacion;
         $cambio->solicitudInstitucion           = $request->solicitudInstitucion;
-        $cambio->codigo_institucion_milton      = $request->codigo_institucion_milton;
+        // $cambio->codigo_institucion_milton      = $request->codigo_institucion_milton;
         $cambio->vendedorInstitucion            = $request->vendedorInstitucion;
         $cambio->tipo_institucion               = $request->tipo_institucion;
         $cambio->region_idregion                = $request->region_idregion;
-        $cambio->ciudad_id                      = $request->ciudad_id;
+        $cambio->idprovincia                    = $request->idprovincia;
+        $cambio->ciudad_id                      = $request->idciudad == null || $request->idciudad == "null" ? null : $request->idciudad;
+        $cambio->parr_id                        = $request->parr_id == null || $request->parr_id == "null" ? null : $request->parr_id;
+        $cambio->tipo_descripcion               = $request->tipo_descripcion == null || $request->tipo_descripcion == "null" ? null : $request->tipo_descripcion;
         $cambio->estado_idEstado                = $request->estado;
         $cambio->aplica_matricula               = $request->aplica_matricula;
         $cambio->punto_venta                    = $request->punto_venta;
         // Validación para enviar NULL si está vacío o es "null"
-        $cambio->zona_id = $request->zona_id === '' || $request->zona_id === 'null' ? null : $request->zona_id;
+        // $cambio->zona_id = $request->zona_id === '' || $request->zona_id === 'null' ? null : $request->zona_id;
         $cambio->asesor_id                      = $request->asesor_id;
         $cambio->maximo_porcentaje_autorizado   = $request->maximo_porcentaje_autorizado;
         $cambio->evaluacion_personalizada       = $request->evaluacion_personalizada;
@@ -504,7 +509,9 @@ class InstitucionController extends Controller
         $asesor = $request->query('asesor');
 
         $query = DB::table('institucion as i')
+            ->leftJoin('provincia as prov', 'i.idprovincia', '=', 'prov.idprovincia')
             ->leftJoin('ciudad as c', 'i.ciudad_id', '=', 'c.idciudad')
+            ->leftJoin('parroquia as parr', 'i.parr_id', '=', 'parr.parr_id')
             ->leftJoin('region as r', 'i.region_idregion', '=', 'r.idregion')
             ->leftJoin('usuario as u', 'i.vendedorInstitucion', '=', 'u.cedula')
             ->leftJoin('institucion_tipo_institucion as tp','tp.id','i.tipo_institucion')
@@ -531,7 +538,7 @@ class InstitucionController extends Controller
             ->select(
                 'i.idInstitucion', 'i.region_idregion', 'i.nombreInstitucion', 'i.aplica_matricula',
                 DB::raw("IF(i.estado_idEstado = '1','activado','desactivado') AS estado"),
-                'i.estado_idEstado as estadoInstitucion', 'c.nombre AS ciudad', 'u.idusuario AS asesor_id',
+                'i.estado_idEstado as estadoInstitucion', 'c.nombre AS ciudad', 'prov.nombreprovincia', 'parr.parr_nombre', 'u.idusuario AS asesor_id',
                 'u.nombres AS nombre_asesor', 'u.apellidos AS apellido_asesor', 'i.fecha_registro',
                 'r.nombreregion', 'i.codigo_institucion_milton', 'i.vendedorInstitucion', 'u.iniciales',
                 'i.cantidad_cambio_ventana_evaluacion', 'i.punto_venta', 'i.maximo_porcentaje_autorizado',
@@ -573,6 +580,8 @@ class InstitucionController extends Controller
                 "estado" => $item->estado,
                 "estadoInstitucion" => $item->estadoInstitucion,
                 "ciudad" => $item->ciudad,
+                "nombreprovincia" => $item->nombreprovincia,
+                "parr_nombre" => $item->parr_nombre,
                 "asesor_id" => $item->asesor_id,
                 "nombre_asesor" => $item->nombre_asesor,
                 "apellido_asesor" => $item->apellido_asesor,
@@ -1035,6 +1044,51 @@ class InstitucionController extends Controller
             DB::rollback();
             return response()->json(["status" => "0", 'message' => 'Error al finalizar la compra: ' . $e->getMessage()], 500);
         }
+    }
+
+    public function traerInstitucionFichero(Request $request){
+        $institucion = DB::select("SELECT i.*, pr.parr_nombre, ci.idciudad, ci.nombre as nombre_ciudad, prv.idprovincia, prv.nombreprovincia, ase.idusuario AS asesor_id,
+            CONCAT(ase.nombres, ' ', ase.apellidos) AS asesor_nombres
+            FROM institucion i
+            LEFT JOIN parroquia pr ON i.parr_id = pr.parr_id
+            LEFT JOIN ciudad ci ON i.ciudad_id = ci.idciudad
+            LEFT JOIN provincia prv ON i.idprovincia = prv.idprovincia
+            LEFT JOIN usuario ase ON i.asesor_id = ase.idusuario
+            WHERE idInstitucion = $request->institucion_idInstitucion
+        ");
+        return $institucion;
+    }
+    public function Institucion_X_ID(Request $request){
+        $institucion = DB::select("SELECT i.*, ci.idciudad, ci.nombre as nombre_ciudad FROM institucion i
+            LEFT JOIN ciudad ci ON i.ciudad_id = ci.idciudad
+            WHERE idInstitucion = $request->institucion_idInstitucion
+        ");
+        return $institucion;
+    }
+    public function Reporte_Instituciones(){
+        $institucion = DB::select("SELECT
+            i.nombreInstitucion,
+            pe.periodoescolar_idperiodoescolar AS periodo_id,
+            p.periodoescolar as ultimo_periodo_trabajado,
+            CONCAT(asesorinfo.nombres,' ', asesorinfo.apellidos) AS asesorinstitucion,
+            prov.nombreprovincia as nombre_provincia,
+            ciu.nombre as nombre_ciudad,
+            parr.parr_nombre as nombre_parroquia,
+            i.*
+        FROM institucion i
+        LEFT JOIN periodoescolar_has_institucion pe
+            ON pe.institucion_idInstitucion = i.idInstitucion
+        AND pe.id = (
+                SELECT MAX(pe2.id)
+                FROM periodoescolar_has_institucion pe2
+                WHERE pe2.institucion_idInstitucion = i.idInstitucion
+        )
+        LEFT JOIN periodoescolar p ON p.idperiodoescolar = pe.periodoescolar_idperiodoescolar
+        LEFT JOIN provincia prov ON i.idprovincia = prov.idprovincia
+        LEFT JOIN ciudad ciu ON i.ciudad_id = ciu.idciudad
+        LEFT JOIN parroquia parr ON i.parr_id = parr.parr_id
+        LEFT JOIN usuario asesorinfo ON i.asesor_id = asesorinfo.idusuario;");
+        return $institucion;
     }
     //METODOS JEYSON FIN
     //novedades institucion

@@ -73,6 +73,7 @@ class CodigoLibrosController extends Controller
         $comentario             = "Codigo leido de ".$nombreInstitucion." - ".$nombrePeriodo;
         $id_usuario             = $request->id_usuario;
         $id_group               = $request->id_group;
+        $desdePedido            = $request->desdePedido;
         $codigosNoCambiados     = [];
         $contadorNoCambiado     = 0;
         $codigosLeidos          = [];
@@ -106,7 +107,7 @@ class CodigoLibrosController extends Controller
                 $ifLiquidadoRegalado = $validar[0]->liquidado_regalado;
                 $preValidate         = false;
                 //VALIDACION
-                if($id_group == 11) { $preValidate = (($ifid_periodo  == $traerPeriodo || $ifid_periodo == 0 ||  $ifid_periodo == null  ||  $ifid_periodo == "") && ($ifBc_Institucion  == $institucion || $ifBc_Institucion == 0) && ($ifbc_periodo  == $traerPeriodo || $ifbc_periodo == 0) && ($ifventa_estado != 0) && $ifLeido == '1' && ($ifLiquidado == '1' || $ifLiquidado == '2' ) && $ifBloqueado !=2 && $ifLiquidadoRegalado == 0); }
+                if($id_group == 11 || $desdePedido == 1) { $preValidate = (($ifid_periodo  == $traerPeriodo || $ifid_periodo == 0 ||  $ifid_periodo == null  ||  $ifid_periodo == "") && ($ifBc_Institucion  == $institucion || $ifBc_Institucion == 0) && ($ifbc_periodo  == $traerPeriodo || $ifbc_periodo == 0) && ($ifventa_estado != 0) && $ifLeido == '1' && ($ifLiquidado == '1' || $ifLiquidado == '2' ) && $ifBloqueado !=2 && $ifLiquidadoRegalado == 0); }
                 else{                 $preValidate = (($ifid_periodo  == $traerPeriodo || $ifid_periodo == 0 ||  $ifid_periodo == null  ||  $ifid_periodo == "") && ($ifBc_Institucion  == $institucion || $ifBc_Institucion == 0) && ($ifbc_periodo  == $traerPeriodo || $ifbc_periodo == 0) && ($ifventa_estado == 0 || $ifventa_estado == $venta_estado) && $ifLeido == '1' && ($ifLiquidado == '1' || $ifLiquidado == '2' ) && $ifBloqueado !=2 && $ifLiquidadoRegalado == 0); }
                 //===PROCESO===========
                 if($preValidate){
@@ -115,15 +116,17 @@ class CodigoLibrosController extends Controller
                     $getcodigoUnion   = CodigosLibros::Where('codigo',$codigo_union)->get();
                     if($codigo_union != null || $codigo_union != ""){
                         //PASAR A LEIDO CON CODIGO DE UNION
-                        $ingreso = $this->pasarLeidos($item->codigo,$codigo_union,$request,$getcodigoUnion);
+                        $ingreso = $this->pasarLeidos($item->codigo,$codigo_union,$request,$getcodigoUnion,$desdePedido);
                         //si ingresa correctamente
                         if($ingreso == 1){
                             $porcentaje++;
+                            $newValuesActivacion = CodigosLibros::Where('codigo',$item->codigo)->get();
+                            $newValuesUnion      = CodigosLibros::Where('codigo',$codigo_union)->get();
                             //====CODIGO====
                             //ingresar en el historico codigo
-                            $this->GuardarEnHistorico(0,$institucion,$traerPeriodo,$item->codigo,$id_usuario,$comentario,$getcodigoPrimero,null);
+                            $this->GuardarEnHistorico(0,$institucion,$traerPeriodo,$item->codigo,$id_usuario,$comentario,$getcodigoPrimero,$newValuesActivacion);
                             //====CODIGO UNION=====
-                            $this->GuardarEnHistorico(0,$institucion,$traerPeriodo,$codigo_union,$id_usuario,$comentario,$getcodigoUnion,null);
+                            $this->GuardarEnHistorico(0,$institucion,$traerPeriodo,$codigo_union,$id_usuario,$comentario,$getcodigoUnion,$newValuesUnion);
                         }else{
                             $codigosNoCambiados[$contadorNoCambiado] =[
                                 "codigo"        => $item->codigo,
@@ -134,11 +137,12 @@ class CodigoLibrosController extends Controller
                     }
                     //ACTUALIZAR CODIGO SIN UNION
                     else{
-                        $ingreso =  $this->pasarLeidos($item->codigo,0,$request,null);
+                        $ingreso =  $this->pasarLeidos($item->codigo,0,$request,null,$desdePedido);
                         if($ingreso == 1){
+                            $newValues = CodigosLibros::Where('codigo',$item->codigo)->get();
                             $porcentaje++;
                             //ingresar en el historico
-                            $this->GuardarEnHistorico(0,$institucion,$traerPeriodo,$item->codigo,$id_usuario,$comentario,$getcodigoPrimero,null);
+                            $this->GuardarEnHistorico(0,$institucion,$traerPeriodo,$item->codigo,$id_usuario,$comentario,$getcodigoPrimero,$newValues);
                             $codigosSinCodigoUnion[] = $validar[0];
                         }
                         else{
@@ -168,7 +172,7 @@ class CodigoLibrosController extends Controller
             "codigosSinCodigoUnion" => $codigosSinCodigoUnion,
         ];
     }
-    public function pasarLeidos($codigo,$codigo_union,$request,$objectCodigoUnion){
+    public function pasarLeidos($codigo,$codigo_union,$request,$objectCodigoUnion,$desdePedido=0){
         $withCodigoUnion = 1;
         $estadoIngreso   = 0;
         $todate          = date('Y-m-d H:i:s');
@@ -180,7 +184,7 @@ class CodigoLibrosController extends Controller
         ///estadoIngreso => 1 = ingresado; 2 = no se puedo ingresar el codigo de union;
         if($codigo_union == '0') $withCodigoUnion = 0;
         else                     $withCodigoUnion = 1;
-        if($id_group == 11){
+        if($id_group == 11 || $desdePedido == 1){
             $arraySave  = [
                 'bc_institucion'        => $institucion,
                 'bc_estado'             => 2,
@@ -221,7 +225,7 @@ class CodigoLibrosController extends Controller
             $ifbc_periodo       = $objectCodigoUnion[0]->bc_periodo;
             $preValidate        = false;
             //VALIDACIO N
-            if($id_group == 11) { $preValidate = (($ifid_periodo  == $traerPeriodo || $ifid_periodo == 0 ||  $ifid_periodo == null  ||  $ifid_periodo == "") && ($ifBc_Institucion  == $institucion || $ifBc_Institucion == 0) && ($ifbc_periodo  == $traerPeriodo || $ifbc_periodo == 0) && ($ifventa_estado != 0) && $ifLeido == '1' && ($ifLiquidado == '1' || $ifLiquidado == '2') && $ifBloqueado !=2); }
+            if($id_group == 11 || $desdePedido == 1) { $preValidate = (($ifid_periodo  == $traerPeriodo || $ifid_periodo == 0 ||  $ifid_periodo == null  ||  $ifid_periodo == "") && ($ifBc_Institucion  == $institucion || $ifBc_Institucion == 0) && ($ifbc_periodo  == $traerPeriodo || $ifbc_periodo == 0) && ($ifventa_estado != 0) && $ifLeido == '1' && ($ifLiquidado == '1' || $ifLiquidado == '2') && $ifBloqueado !=2); }
             else{                 $preValidate = (($ifid_periodo  == $traerPeriodo || $ifid_periodo == 0 ||  $ifid_periodo == null  ||  $ifid_periodo == "") && ($ifBc_Institucion  == $institucion || $ifBc_Institucion == 0) && ($ifbc_periodo  == $traerPeriodo || $ifbc_periodo == 0) && ($ifventa_estado == 0 || $ifventa_estado == $venta_estado) && $ifLeido == '1' &&  ($ifLiquidado == '1' || $ifLiquidado == '2')  && $ifBloqueado !=2); }
             //===PROCESO===========
             if($preValidate){
@@ -1142,7 +1146,8 @@ class CodigoLibrosController extends Controller
             end) as ventaEstado,
             ib.nombreInstitucion as institucionBarra,
             pb.periodoescolar as periodo_barras, ivl.nombreInstitucion as InstitucionLista,
-            c.codigo_proforma, c.proforma_empresa, c.combo, c.codigo_combo, ls.codigo_liquidacion
+            c.codigo_proforma, c.proforma_empresa, c.combo, c.codigo_combo, ls.codigo_liquidacion,
+            c.documento_devolucion, c.plus, c.quitar_de_reporte
             FROM codigoslibros c
             LEFT JOIN institucion ib ON c.bc_institucion = ib.idInstitucion
             LEFT JOIN institucion ivl ON c.venta_lista_institucion = ivl.idInstitucion
@@ -2916,6 +2921,10 @@ private function agruparPorCodigoPrimerValor($arrayOldValues) {
                                     "precio"             => $item->precio,
                                     "combo"              => $getcodigoPrimero[0]->codigo_combo,
                                     "codigo_combo"       => $getcodigoPrimero[0]->codigo_combo,
+                                    'codigo_proforma'    => $getcodigoPrimero[0]->codigo_proforma,
+                                    'proforma_empresa'   => $getcodigoPrimero[0]->proforma_empresa,
+                                    'factura'            => $getcodigoPrimero[0]->factura,
+                                    'codigo_paquete'     => $getcodigoPrimero[0]->codigo_paquete,
                                 ];
 
                             }
@@ -2949,6 +2958,10 @@ private function agruparPorCodigoPrimerValor($arrayOldValues) {
                                     "precio"             => $item->precio,
                                     "combo"              => $getcodigoPrimero[0]->codigo_combo,
                                     "codigo_combo"       => $getcodigoPrimero[0]->codigo_combo,
+                                    'codigo_proforma'    => $getcodigoPrimero[0]->codigo_proforma,
+                                    'proforma_empresa'   => $getcodigoPrimero[0]->proforma_empresa,
+                                    'factura'            => $getcodigoPrimero[0]->factura,
+                                    'codigo_paquete'     => $getcodigoPrimero[0]->codigo_paquete,
                                 ];
                             }
                             else{
@@ -3627,19 +3640,74 @@ private function agruparPorCodigoPrimerValor($arrayOldValues) {
         ->where('codigo', '=', $codigo)
         ->update($datos);
     }
-    public function getCodigosPlanlectorLiquidadoRegalado(Request $request){
-        $query = DB::SELECT("SELECT c.libro_idlibro, ls.codigo_liquidacion, ls.nombre,
-            SUM(CASE WHEN c.estado_liquidacion = '2' AND c.liquidado_regalado = '1' AND c.prueba_diagnostica = '0' THEN 1 ELSE 0 END) AS codigos_regalado_liquidado,
-            SUM(CASE WHEN c.estado_liquidacion = '2' AND c.liquidado_regalado = '0' AND c.prueba_diagnostica = '0' THEN 1 ELSE 0 END) AS codigos_regalado,
-            SUM(CASE WHEN c.estado_liquidacion = '0' AND c.prueba_diagnostica = '0' AND c.prueba_diagnostica = '0' THEN 1 ELSE 0 END) AS codigos_liquidados
-            FROM codigoslibros c
-            LEFT JOIN libros_series ls ON c.libro_idlibro = ls.idLibro
-            LEFT JOIN series s ON ls.id_serie = s.id_serie
-            WHERE c.bc_periodo = '$request->periodo'
-            AND ls.id_serie = '6'
-            GROUP BY c.libro_idlibro, ls.nombre, ls.codigo_liquidacion;");
-        return $query;
+    // public function getCodigosPlanlectorLiquidadoRegalado(Request $request){
+    //     $query = DB::SELECT("SELECT c.libro_idlibro, ls.codigo_liquidacion, ls.nombre,
+    //         SUM(CASE WHEN c.estado_liquidacion = '2' AND c.liquidado_regalado = '1' AND c.prueba_diagnostica = '0' THEN 1 ELSE 0 END) AS codigos_regalado_liquidado,
+    //         SUM(CASE WHEN c.estado_liquidacion = '2' AND c.liquidado_regalado = '0' AND c.prueba_diagnostica = '0' THEN 1 ELSE 0 END) AS codigos_regalado,
+    //         SUM(CASE WHEN c.estado_liquidacion = '0' AND c.prueba_diagnostica = '0' AND c.prueba_diagnostica = '0' THEN 1 ELSE 0 END) AS codigos_liquidados
+    //         FROM codigoslibros c
+    //         LEFT JOIN libros_series ls ON c.libro_idlibro = ls.idLibro
+    //         LEFT JOIN series s ON ls.id_serie = s.id_serie
+    //         WHERE c.bc_periodo = '$request->periodo'
+    //         AND ls.id_serie = '6'
+    //         GROUP BY c.libro_idlibro, ls.nombre, ls.codigo_liquidacion;");
+    //     return $query;
+    // }
+    public function getCodigosPlanlectorLiquidadoRegalado(Request $request)
+{
+    $periodo = (int) $request->periodo;
+    $fechaInicio = $request->fecha_inicio;
+    $fechaFin = $request->fecha_fin;
+
+    // ⚙️ Subconsulta optimizada: obtiene solo la última fecha por código_libro
+    // Usa el índice (codigo_libro, updated_at DESC)
+    $hSub = DB::table('hist_codlibros as h1')
+        ->select('h1.codigo_libro', DB::raw('MAX(h1.updated_at) as last_updated'))
+        ->groupBy('h1.codigo_libro');
+
+    $query = DB::table('codigoslibros as c')
+        ->join('libros_series as ls', 'c.libro_idlibro', '=', 'ls.idLibro')
+        ->join('series as s', 'ls.id_serie', '=', 's.id_serie')
+        ->leftJoinSub($hSub, 'hmax', function ($join) {
+            $join->on('hmax.codigo_libro', '=', 'c.codigo');
+        })
+        ->select(
+            'c.libro_idlibro',
+            'ls.codigo_liquidacion',
+            'ls.nombre',
+            'c.codigo',
+            DB::raw("CASE
+                        WHEN c.liquidado_regalado = 0 THEN 'Sin liquidar'
+                        WHEN c.liquidado_regalado = 1 THEN 'Liquidado'
+                        ELSE 'Desconocido'
+                     END AS liquidado_regalado_texto"),
+            DB::raw('CAST(COALESCE(c.estado_liquidacion, 0) AS UNSIGNED) AS estado_liquidacion'),
+            DB::raw('CAST(COALESCE(c.liquidado_regalado, 0) AS UNSIGNED) AS liquidado_regalado'),
+            DB::raw('hmax.last_updated AS historico_updated_at')
+        )
+        ->where('c.bc_periodo', $periodo)
+        ->where('ls.id_serie', 6)
+        ->where('c.prueba_diagnostica', 0)
+        ->where('c.estado_liquidacion', 2);
+
+    // 📅 Filtro opcional de rango de fechas sobre hmax.last_updated
+    if ($fechaInicio && $fechaFin) {
+        $query->whereBetween(DB::raw('DATE(hmax.last_updated)'), [$fechaInicio, $fechaFin]);
+    } elseif ($fechaInicio) {
+        $query->whereDate('hmax.last_updated', '>=', $fechaInicio);
+    } elseif ($fechaFin) {
+        $query->whereDate('hmax.last_updated', '<=', $fechaFin);
     }
+
+    // 🔽 Orden por la fecha del histórico más reciente y por libro
+    $query->orderByDesc('hmax.last_updated')
+          ->orderBy('c.libro_idlibro');
+
+    return $query->get();
+}
+
+
+
     public function importCodigosRemplazoPaquetes(Request $request)
     {
         $dataCodigosRemplazo = json_decode($request->input('dataCodigosRemplazo'), true);
@@ -5000,7 +5068,7 @@ private function agruparPorCodigoPrimerValor($arrayOldValues) {
             fp.pfn_pvp AS precio,
             CASE WHEN c.plus = 1 THEN ls.id_libro_plus ELSE c.libro_idlibro END AS libro_idReal,
             c.plus,
-            CASE WHEN c.quitar_de_reporte = 2 THEN 'Quitado del reporte' ELSE 'No quitado' END AS quitar_de_reporte,
+            CASE WHEN c.quitar_de_reporte = 1 THEN 'Quitado del reporte' ELSE 'No quitado' END AS quitar_de_reporte,
             c.contrato,
             CASE WHEN c.estado = 2 THEN 'Bloqueado' ELSE 'Activo' END AS estado,
             CASE WHEN c.venta_estado = 2 THEN 'Lista' ELSE 'Directa' END AS venta_estado,

@@ -162,7 +162,7 @@ class  CodigosRepository extends BaseRepository
             'combo'                     => null,
             'documento_devolucion'      => null,
             'permitir_devolver_nota'    => '0',
-            'quitar_de_reporte'         => null,
+            'quitar_de_reporte'         => '0',
         ];
         $arrayPaquete = [
             'codigo_paquete'            => null,
@@ -783,6 +783,7 @@ class  CodigosRepository extends BaseRepository
                     'c.porcentaje_personalizado_regalado',
                     'ls.year',
                     'ls.id_libro_plus',
+                    'v.idtipodoc',
                     DB::raw("
                         CASE
                             WHEN c.porcentaje_personalizado_regalado = 0 THEN
@@ -821,6 +822,10 @@ class  CodigosRepository extends BaseRepository
                 ->leftJoin('libros_series as l_plus', 'ls.id_libro_plus', '=', 'l_plus.idLibro') // Join adicional para plus
                 ->leftJoin('libro as lib_plus', 'ls.id_libro_plus', '=', 'lib_plus.idlibro')
                 ->leftJoin('asignatura as a_plus', 'lib_plus.asignatura_idasignatura', '=', 'a_plus.idasignatura')
+                ->leftJoin('f_venta as v', function ($join) {
+                    $join->on('v.ven_codigo', '=', 'c.codigo_proforma')
+                         ->on('v.id_empresa', '=', 'c.proforma_empresa');
+                })
                 ->where('c.bc_periodo', $periodo)
                 ->where('c.prueba_diagnostica', '0')
                 // ->where('c.bc_estado', '2')
@@ -1265,59 +1270,118 @@ class  CodigosRepository extends BaseRepository
     }
 
     //FIN METODOS JEYSON
-    public function getAgrupadoCombos($codigos, $getCombos){
+    // public function getAgrupadoCombos($codigos, $getCombos){
+    //     try {
+    //         // Convertir $getCombos a una colección de Laravel si es un array normal
+    //         $getCombos = collect($getCombos);
+
+    //         // Agrupar por código de combo
+    //         $result = $codigos->groupBy(function ($item) {
+    //             return $item->combo;
+    //         });
+
+    //         // Mapear los resultados para incluir la información adicional de cada combo
+    //         $result = $result->map(function ($group) use ($getCombos) {
+    //             // Agrupar por 'codigo_combo' y contar las ocurrencias
+    //             $hijos = $group->groupBy('codigo_combo')->map(function ($subGroup, $key) {
+    //                 // Retornar un array de objetos con propiedad 'codigo_combo' y su cantidad
+    //                 return [
+    //                     'codigo_combo' => $key,   // Código del hijo
+    //                     'cantidad' => $subGroup->count()  // Cantidad de ocurrencias de este código de combo
+    //                 ];
+    //             });
+
+    //             // Buscar la información del combo dentro de $getCombos usando el código del combo
+    //             $comboInfo = $getCombos->firstWhere('codigo_liquidacion', $group->first()->combo);
+
+    //             // Retornar el formato solicitado con la información adicional del combo
+
+    //             return(object)[
+    //                 'codigo_libro'              => $group->first()->combo,
+    //                 'combo'                     => $group->first()->combo,   // Nombre del combo
+    //                 'cantidad_items'            => $hijos->count(),       // Cantidad de items dentro del combo,
+    //                 'cantidad_subitems'         => $group->count(),       // Cantidad de items dentro del combo,
+    //                 'hijos'                     => $hijos->values(),         // Los códigos de combo y sus cantidades en formato de array de objetos
+    //                 'codigo'                    => $comboInfo ? $comboInfo->codigo_liquidacion : null,
+    //                 'libro_idReal'              => $comboInfo ? $comboInfo->idLibro : null,
+    //                 'libro_idlibro'             => $comboInfo ? $comboInfo->idLibro : null,
+    //                 'area_idarea'               => $comboInfo ? $comboInfo->area_idarea : null,
+    //                 'id_serie'                  => $comboInfo ? $comboInfo->id_serie : null,
+    //                 'year'                      => $comboInfo ? $comboInfo->year : null,
+    //                 'nombrelibro'               => $comboInfo ? $comboInfo->nombre : null,
+    //                 'codigos_combos'            => $comboInfo ? $comboInfo->codigos_combos : null,
+    //                 'cantidad_combos'           => $comboInfo ? $comboInfo->cantidad_combos : null,
+    //                 'tipo_codigo'               => 1 // 0 = codigo individual; 1 = combo general
+    //             ];
+    //         });
+
+    //         // Convertir el resultado en un array simple
+    //         return $result->values()->toArray();
+
+    //     } catch (\Exception $e) {
+    //         // Lanza una excepción personalizada
+    //         throw new \Exception('Error al procesar los combos: ' . $e->getMessage());
+    //     }
+    // }
+
+
+    public function getAgrupadoCombos($codigos, $getCombos)
+    {
         try {
-            // Convertir $getCombos a una colección de Laravel si es un array normal
             $getCombos = collect($getCombos);
 
-            // Agrupar por código de combo
+            // 🔹 Agrupar por combo y descuento (porcentaje)
             $result = $codigos->groupBy(function ($item) {
-                return $item->combo;
+                $descuento = $item->descuento ?? 0;
+                return $item->combo . '_' . $descuento; // clave segura tipo "CSDH2_50"
             });
 
-            // Mapear los resultados para incluir la información adicional de cada combo
             $result = $result->map(function ($group) use ($getCombos) {
-                // Agrupar por 'codigo_combo' y contar las ocurrencias
+                $first = $group->first();
+
+                // 🔹 Tomar directamente del primer elemento del grupo
+                $combo      = $first->combo;
+                $descuento = $first->descuento ?? 0;
+
+                // 🔹 Agrupar los hijos por código de combo
                 $hijos = $group->groupBy('codigo_combo')->map(function ($subGroup, $key) {
-                    // Retornar un array de objetos con propiedad 'codigo_combo' y su cantidad
                     return [
-                        'codigo_combo' => $key,   // Código del hijo
-                        'cantidad' => $subGroup->count()  // Cantidad de ocurrencias de este código de combo
+                        'codigo_combo' => $key,
+                        'cantidad'     => $subGroup->count(),
                     ];
                 });
 
-                // Buscar la información del combo dentro de $getCombos usando el código del combo
-                $comboInfo = $getCombos->firstWhere('codigo_liquidacion', $group->first()->combo);
+                // 🔹 Buscar información adicional del combo
+                $comboInfo = $getCombos->firstWhere('codigo_liquidacion', $combo);
 
-                // Retornar el formato solicitado con la información adicional del combo
-
-                return(object)[
-                    'codigo_libro'              => $group->first()->combo,
-                    'combo'                     => $group->first()->combo,   // Nombre del combo
-                    'cantidad_items'            => $hijos->count(),       // Cantidad de items dentro del combo,
-                    'cantidad_subitems'         => $group->count(),       // Cantidad de items dentro del combo,
-                    'hijos'                     => $hijos->values(),         // Los códigos de combo y sus cantidades en formato de array de objetos
-                    'codigo'                    => $comboInfo ? $comboInfo->codigo_liquidacion : null,
-                    'libro_idReal'              => $comboInfo ? $comboInfo->idLibro : null,
-                    'libro_idlibro'             => $comboInfo ? $comboInfo->idLibro : null,
-                    'area_idarea'               => $comboInfo ? $comboInfo->area_idarea : null,
-                    'id_serie'                  => $comboInfo ? $comboInfo->id_serie : null,
-                    'year'                      => $comboInfo ? $comboInfo->year : null,
-                    'nombrelibro'               => $comboInfo ? $comboInfo->nombre : null,
-                    'codigos_combos'            => $comboInfo ? $comboInfo->codigos_combos : null,
-                    'cantidad_combos'           => $comboInfo ? $comboInfo->cantidad_combos : null,
-                    'tipo_codigo'               => 1 // 0 = codigo individual; 1 = combo general
+                return (object)[
+                    'codigo_libro'       => $combo,
+                    'combo'              => $combo,
+                    'descuento'          => $descuento, // nuevo campo
+                    'cantidad_items'     => $hijos->count(),
+                    'cantidad_subitems'  => $group->count(),
+                    'hijos'              => $hijos->values(),
+                    'codigo'             => $comboInfo ? $comboInfo->codigo_liquidacion : null,
+                    'libro_idReal'       => $comboInfo ? $comboInfo->idLibro : null,
+                    'libro_idlibro'      => $comboInfo ? $comboInfo->idLibro : null,
+                    'area_idarea'        => $comboInfo ? $comboInfo->area_idarea : null,
+                    'id_serie'           => $comboInfo ? $comboInfo->id_serie : null,
+                    'year'               => $comboInfo ? $comboInfo->year : null,
+                    'nombrelibro'        => $comboInfo ? $comboInfo->nombre : null,
+                    'codigos_combos'     => $comboInfo ? $comboInfo->codigos_combos : null,
+                    'cantidad_combos'    => $comboInfo ? $comboInfo->cantidad_combos : null,
+                    'tipo_codigo'        => 1,
+                    'idtipodoc'         => $first->idtipodoc ?? null,
                 ];
             });
 
-            // Convertir el resultado en un array simple
             return $result->values()->toArray();
-
         } catch (\Exception $e) {
-            // Lanza una excepción personalizada
             throw new \Exception('Error al procesar los combos: ' . $e->getMessage());
         }
     }
+
+
     public function save_historicoStockOld($pro_codigo){
         try{
 
@@ -1528,6 +1592,10 @@ class  CodigosRepository extends BaseRepository
                 $detalle->precio                                        = $item->precio;
                 $detalle->combo                                         = $item->combo;
                 $detalle->codigo_combo                                  = $item->codigo_combo;
+                $detalle->id_empresa                                    = $item->proforma_empresa;
+                $detalle->documento                                     = $item->codigo_proforma;
+                $detalle->factura                                       = $item->factura;
+                $detalle->codigo_paquete                                = $item->codigo_paquete;
                 if (!$detalle->save()) {
                     throw new \Exception("No se pudo guardar el detalle con código: {$item->codigo}");
                 }

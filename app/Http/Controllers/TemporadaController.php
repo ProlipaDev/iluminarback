@@ -579,13 +579,13 @@ class TemporadaController extends Controller
 
     //GET/getAllRegalados/{institucion,$periodo}
     public function getAllRegalados($institucion,$periodo){
-        $key = "getAllRegalados".$institucion.$periodo;
-        if (Cache::has($key)) {
-           $regalados = Cache::get($key);
-        } else {
+        //$key = "getAllRegalados".$institucion.$periodo;
+        // if (Cache::has($key)) {
+        //    $regalados = Cache::get($key);
+        // } else {
             $regalados = $this->obtenerAllRegalados($institucion,$periodo);
-            Cache::put($key,$regalados);
-        }
+            //Cache::put($key,$regalados);
+        //}
         return $regalados;
     }
     //REGALADOS
@@ -679,10 +679,10 @@ class TemporadaController extends Controller
     }
     //API:GET/getliquidadosDevueltos/{contrato}
     public function getliquidadosDevueltos($contrato){
-        $key = "getliquidadosDevueltos".$contrato;
-        if (Cache::has($key)) {
-           $devueltos = Cache::get($key);
-        } else {
+        // $key = "getliquidadosDevueltos".$contrato;
+        // if (Cache::has($key)) {
+        //    $devueltos = Cache::get($key);
+        // } else {
             //jorge dice que solo hay que mostrar el historico de los codigos que se han devuelto
             // $devueltos = DB::SELECT("SELECT h.codigo_libro,h.devueltos_liquidados,
             //     h.verificacion_liquidada,h.observacion,h.created_at
@@ -701,8 +701,8 @@ class TemporadaController extends Controller
             WHERE h.devueltos_liquidados = ?
             AND c.prueba_diagnostica = '0'
         ",[$contrato]);
-            Cache::put($key,$devueltos);
-        }
+        //     Cache::put($key,$devueltos);
+        // }
         return $devueltos;
     }
     public function limpiarCache(){

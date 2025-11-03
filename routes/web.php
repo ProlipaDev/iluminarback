@@ -335,6 +335,85 @@ Route::apiResource('usr','UsuarioController');
 Route::post('eliminarUsuario','UsuarioController@eliminarUsuario');
 Route::apiResource('institucion','InstitucionController');
 Route::apiResource('admin','AdminController');
+// === RUTAS DE REPORTES PROTEGIDAS CON MIDDLEWARE ADMIN ===
+Route::middleware(['admin'])->group(function () {
+    // Ruta para mostrar la vista de reportes del sistema
+    Route::get('admin/reportes/vista', 'AdminController@mostrarVistaReportes');
+    // Rutas para probar los procedimientos almacenados
+    Route::get('admin/reportes/test/{tipo_reporte}/{id_periodo}', 'AdminController@testProcedimientoReportes');
+    // Rutas para descargar reportes en CSV
+    Route::get('admin/reportes/{tipo_reporte}/{id_periodo}', 'AdminController@descargarReportes');
+
+    // === RUTAS LEGACY PARA COMPATIBILIDAD ===
+    // Ruta para mostrar la vista de códigos despachados (LEGACY)
+    Route::get('admin/despachados/vista', 'AdminController@mostrarVistaDespachados');
+    // Ruta para probar el procedimiento almacenado (LEGACY)
+    Route::get('admin/despachados/test/{id_periodo}', 'AdminController@testProcedimientoDespachados');
+    // RUTA TEMPORAL PARA DEBUGGING (LEGACY)
+    Route::get('admin/despachados/simple/{id_periodo}', function($id_periodo) {
+    // Configuración agresiva
+    set_time_limit(0);
+    ini_set('memory_limit', '4G');
+    ini_set('max_execution_time', 0);
+    ignore_user_abort(true);
+
+    try {
+        // Conexión directa
+        $pdo = DB::getPdo();
+        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+        // Headers para descarga
+        $headers = [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+            'Content-Disposition' => 'attachment; filename="despachados_simple_' . $id_periodo . '.csv"',
+            'Cache-Control' => 'no-cache',
+            'Pragma' => 'no-cache'
+        ];
+
+        $callback = function() use ($pdo, $id_periodo) {
+            $output = fopen('php://output', 'w');
+
+            // BOM para UTF-8
+            fprintf($output, chr(0xEF).chr(0xBB).chr(0xBF));
+
+            // Ejecutar procedimiento
+            $stmt = $pdo->prepare("CALL sp_despachados(?)");
+            $stmt->execute([$id_periodo]);
+
+            $count = 0;
+            $isFirst = true;
+
+            while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                if ($isFirst) {
+                    fputcsv($output, array_keys($row), ';');
+                    $isFirst = false;
+                }
+
+                fputcsv($output, array_values($row), ';');
+                $count++;
+
+                if ($count % 500 == 0) {
+                    flush();
+                }
+            }
+
+            fputcsv($output, [], ';');
+            fputcsv($output, ["Total: $count registros"], ';');
+
+            fclose($output);
+        };
+
+        return response()->stream($callback, 200, $headers);
+
+    } catch (Exception $e) {
+        return response()->json(['error' => $e->getMessage()], 500);
+    }
+    });
+
+    // Ruta para descargar códigos despachados en CSV (LEGACY)
+    Route::get('codigos/despachados/csv/{id_periodo}', 'AdminController@descargarDespachados');
+});
+
 Route::apiResource('vendedor','VendedorController');
 
 Route::apiResource('docente','DocenteController');
@@ -1059,6 +1138,7 @@ Route::post('abono_registro', 'AbonoController@abono_registro');
 Route::post('eliminarAbono', 'AbonoController@eliminarAbono');
 Route::post('cobro_cheque_registro', 'AbonoController@cobro_cheque_registro');
 Route::get('get_facturasNotasxParametro', 'AbonoController@get_facturasNotasxParametro');
+Route::get('get_facturaRealxParametro', 'AbonoController@get_facturaRealxParametro');
 Route::get('get_notasCreditoxParametro', 'AbonoController@get_notasCreditoxParametro');
 Route::get('get_facturasNotasAll', 'AbonoController@get_facturasNotasAll');
 Route::get('getVentasXperioso', 'AbonoController@getVentasXperioso');
@@ -1121,8 +1201,18 @@ Route::post('editarVenta', 'AbonoController@editarVenta');
 Route::post('cambioCodigosPrefacturasANota', 'VentasController@cambioCodigosPrefacturasANota');
 Route::post('cambioPrefacturasANota', 'VentasController@cambioPrefacturasANota');
 Route::get('getNotasIntercambio','VentasController@getNotasIntercambio');
+Route::get('getNotasIntercambioXcliente','VentasController@getNotasIntercambioXcliente');
 Route::get('Get_PREFacturaCodigos','VentasController@Get_PREFacturaCodigos');
 //FIN PREFACTURAS A NOTAS
+//NOTAS CREDITO
+Route::get('getNotasCredito', 'VentasController@getNotasCredito');
+Route::get('getNotasCreditoXcliente', 'VentasController@getNotasCreditoXcliente');
+Route::get('getCantidadNotaCredito', 'VentasController@getCantidadNotaCredito');
+Route::get('getCantidadNotaCreditoXcliente', 'VentasController@getCantidadNotaCreditoXcliente');
+Route::get('getNotasCLiente', 'VentasController@getNotasCLiente');
+Route::get('getNotasCLienteXcliente', 'VentasController@getNotasCLienteXcliente');
+Route::post('cambioDesfasANotaCredito', 'VentasController@cambioDesfasANotaCredito');
+//FIN NOTAS CREDITO
 //PEDIDOS
 Route::post('anularPedido', 'VentasController@anularPedido');
 //FIN PEDIDOS
@@ -1260,7 +1350,21 @@ Route::get('Todo_Libros_Series_Nombre_y_Codigo','LibroSerieController@Todo_Libro
 Route::get('ReporteContratos21_22','VentasController@ReporteContratos21_22');
 Route::get('ReporteContratos23_24','VentasController@ReporteContratos23_24');
 Route::get('GetPeriodoescolar_FicheroMercado','PeriodoController@GetPeriodoescolar_FicheroMercado');
+Route::get('traerInstitucionFichero','InstitucionController@traerInstitucionFichero');
+Route::get('Procesar_MetodosGet_Fichero_MercadoController','Fichero_MercadoController@Procesar_MetodosGet_Fichero_MercadoController');
+Route::get('TodoProvincia','CiudadController@TodoProvincia');
+Route::get('TodoCiudadoCanton','CiudadController@TodoCiudadoCanton');
+Route::get('TodoParroquia','CiudadController@TodoParroquia');
+Route::get('Institucion_X_ID','InstitucionController@Institucion_X_ID');
+Route::get('VerifcarMetodosGet_Institucion_Autoridades','Institucion_AutoridadesController@VerifcarMetodosGet_Institucion_Autoridades');
+Route::get('VerifcarMetodosGet_Editoriales','EditorialesController@VerifcarMetodosGet_Editoriales');
+Route::get('Reporte_Instituciones','InstitucionController@Reporte_Instituciones');
+Route::post('VerifcarMetodosPost_Institucion_Autoridades','Institucion_AutoridadesController@VerifcarMetodosPost_Institucion_Autoridades');
+Route::post('VerifcarMetodosPost_Editoriales','EditorialesController@VerifcarMetodosPost_Editoriales');
+Route::post('actualizarPassword_PerfilUser','UsuarioController@actualizarPassword_PerfilUser');
+Route::post('Procesar_MetodosPost_Fichero_MercadoController','Fichero_MercadoController@Procesar_MetodosPost_Fichero_MercadoController');
 Route::post('Transferencia_ActividadesyAnimaciones_Asignatura','ActividadAnimacionController@Transferencia_ActividadesyAnimaciones_Asignatura');
+Route::post('PostCrearEditarUsuariosFichero','UsuarioController@PostCrearEditarUsuariosFichero');
 Route::post('Agregar_F_DetalleVenta_ConsultaFinalRegalados','CodigosLibrosController@Agregar_F_DetalleVenta_ConsultaFinalRegalados');
 Route::post('Agregar_Nombres_ConsultaFinalRegalados','CodigosLibrosController@Agregar_Nombres_ConsultaFinalRegalados');
 Route::post('Agrupar_Regalados_Devueltos_Temporada','CodigosLibrosController@Agrupar_Regalados_Devueltos_Temporada');
@@ -2009,8 +2113,10 @@ Route::post('Desactivar_venta','VentasController@Desactivar_venta');
 Route::post('/ventas/subtotal', 'VentasController@updateSubtotal');
 Route::get('prefacturasCliente','VentasController@prefacturasCliente');
 Route::get('getAllPrefacturas','VentasController@getAllPrefacturas');
+Route::get('getAllPrefacturasXCliente','VentasController@getAllPrefacturasXCliente');
 Route::get('Get_PREFactura','VentasController@Get_PREFactura');
 Route::get('getCantidadFacturada','VentasController@getCantidadFacturada');
+Route::get('getCantidadFacturadaXcliente','VentasController@getCantidadFacturadaXcliente');
 Route::post('PostFacturarReal', 'VentasController@PostFacturarReal');
 Route::post('updateDocument', 'VentasController@updateDocument');
 Route::post('notasMoverToPrefactura', 'PrefacturaController@notasMoverToPrefactura');
@@ -2186,3 +2292,4 @@ Route::get('codigosXcontrato', 'VentasController@codigosXcontrato');
 Route::get('obtenerPorInstitucionPeriodo', 'AbonoController@obtenerPorInstitucionPeriodo');
 Route::get('getRespRapida', 'TicketController@get_resp_quickly');
 Route::post('updateRevisionPedido', 'PedidosController@updateRevisionPedido');
+Route::get('descargar-planificacion/{id}', 'PlanificacionesController@descargarPlanificacion');

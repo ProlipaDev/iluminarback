@@ -73,39 +73,47 @@ class  SalleRepository extends BaseRepository
             throw new \Exception('Error al actualizar la calificación final: ' . $e->getMessage());
         }
     }
-    public function getCalificacionPreguntasXArea($id_evaluacion,$id_area){
+    public function getCalificacionPreguntasXArea($id_evaluacion, $id_area)
+    {
         $getTipoCalificacion = SalleEvaluaciones::where('id_evaluacion', $id_evaluacion)->first();
         if (!$getTipoCalificacion) {
             throw new \Exception("No existe esa evaluación.");
         }
-          if($getTipoCalificacion->tipo_calificacion == 0){
-            $query = DB::SELECT("SELECT SUM(r.puntaje) AS puntaje
-            FROM
-            salle_respuestas_preguntas r
-            LEFT JOIN salle_preguntas p ON r.id_pregunta = p.id_pregunta
-            LEFT JOIN salle_asignaturas a ON p.id_asignatura = a.id_asignatura
-            WHERE r.id_evaluacion = ?
-            AND a.id_area = ?
-            ",[$id_evaluacion,$id_area]);
-        }else{
-            $query = DB::SELECT("SELECT SUM(p.calificacion_final) AS puntaje
+        if ($getTipoCalificacion->tipo_calificacion == 0) {
+            $query = DB::select(
+                "SELECT r.id_pregunta, SUM(r.puntaje) AS puntaje
+                FROM salle_respuestas_preguntas r
+                LEFT JOIN salle_preguntas p ON r.id_pregunta = p.id_pregunta
+                LEFT JOIN salle_asignaturas a ON p.id_asignatura = a.id_asignatura
+                WHERE r.id_evaluacion = ? AND a.id_area = ?
+                GROUP BY r.id_pregunta",
+                [$id_evaluacion, $id_area]
+            );
+        } else {
+            $query = DB::select(
+                "SELECT p.id_pregunta, SUM(p.calificacion_final) AS puntaje
+                FROM salle_preguntas_evaluacion p
+                LEFT JOIN salle_preguntas pp ON pp.id_pregunta = p.id_pregunta
+                LEFT JOIN salle_asignaturas a ON pp.id_asignatura = a.id_asignatura
+                WHERE p.id_evaluacion = ? AND a.id_area = ?
+                GROUP BY p.id_pregunta",
+                [$id_evaluacion, $id_area]
+            );
+        }
+        return $query;
+    }
+    public function puntajePorArea($id_evaluacion, $id_area)
+    {
+        $query2 = DB::select(
+            "SELECT pp.id_pregunta, pp.puntaje_pregunta AS puntaje
             FROM salle_preguntas_evaluacion p
             LEFT JOIN salle_preguntas pp ON pp.id_pregunta = p.id_pregunta
             LEFT JOIN salle_asignaturas a ON pp.id_asignatura = a.id_asignatura
             WHERE p.id_evaluacion = ?
             AND a.id_area = ?
-            ",[$id_evaluacion,$id_area]);
-        }
-        return $query;
-    }
-    public function puntajePorArea($id_evaluacion,$id_area){
-        $query2 = DB::SELECT("SELECT  sum(pp.puntaje_pregunta) as puntaje
-                FROM salle_preguntas_evaluacion p
-                LEFT JOIN salle_preguntas pp ON pp.id_pregunta = p.id_pregunta
-                LEFT JOIN salle_asignaturas a ON pp.id_asignatura = a.id_asignatura
-                WHERE p.id_evaluacion = '$id_evaluacion'
-                AND a.id_area = '$id_area';
-            ");
+            GROUP BY pp.id_pregunta, pp.puntaje_pregunta",
+            [$id_evaluacion, $id_area]
+        );
         return $query2;
     }
     public function getIntentosXEvaluacion($id_evaluacion, $id_usuario){

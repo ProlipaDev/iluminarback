@@ -17,6 +17,7 @@ class Kernel extends ConsoleKernel
         \Laravelista\LumenVendorPublish\VendorPublishCommand::class,
         Commands\DailyQuote::class,
         Commands\AgendaCron::class,
+        Commands\GenerarCSVDespachados::class,
     ];
 
     /**

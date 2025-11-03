@@ -732,38 +732,52 @@ class AbonoController extends Controller
     {
         $busqueda   = $request->busqueda;
         $id_periodo = $request->id_periodo;
+        $prefactura = $request->prefacturas;
+    
+        // Obtener región desde el periodo
         $getPeriodo = DB::table("periodoescolar")
-        ->where('idperiodoescolar',$id_periodo)
-        ->get();
-        $region = $getPeriodo[0]->region_idregion;
-        $query = $this->tr_getPuntosVentaXPeriodo($busqueda,$region,$id_periodo);
-        // $query = $this->tr_getPuntosVenta($busqueda);
-        //traer datos de la tabla f_formulario_proforma por id_periodo
-        foreach($query as $key => $item){
-            $query[$key]->datosClienteInstitucion = DB::SELECT("SELECT DISTINCT usu.cedula, CONCAT(usu.nombres,' ', usu.apellidos) nombres
-            FROM f_venta fv LEFT JOIN usuario usu ON fv.ven_cliente  = usu.idusuario
-            WHERE fv.id_ins_depacho = '$item->idInstitucion'
-            OR fv.institucion_id = '$item->idInstitucion'
-            AND fv.periodo_id = '$request->id_periodo'
-            AND (fv.idtipodoc = 3 or fv.idtipodoc = 4 or fv.idtipodoc = 1)
-            AND fv.est_ven_codigo <> 3"); 
-
-            // Nueva validación si tiene ventas
+            ->where('idperiodoescolar', $id_periodo)
+            ->first();
+    
+        if (!$getPeriodo) {
+            return response()->json(['error' => 'Periodo no encontrado'], 404);
+        }
+    
+        $region = $getPeriodo->region_idregion;
+    
+        // Obtener instituciones según el periodo y la búsqueda
+        $query = $this->tr_getPuntosVentaXPeriodo($busqueda, $region, $id_periodo);
+    
+        foreach ($query as $key => $item) {
+            // Filtrar tipos de documento según si es prefactura o no
+            $tiposDoc = $prefactura ? [1] : [1, 3, 4];
+    
+            // Traer datos del cliente/institución
+            $query[$key]->datosClienteInstitucion = DB::select("
+                SELECT DISTINCT usu.idusuario, usu.cedula, CONCAT(usu.nombres,' ', usu.apellidos) AS nombres
+                FROM f_venta fv
+                LEFT JOIN usuario usu ON fv.ven_cliente = usu.idusuario
+                WHERE (fv.id_ins_depacho = ? OR fv.institucion_id = ?)
+                AND fv.periodo_id = ?
+                AND fv.idtipodoc IN (" . implode(',', $tiposDoc) . ")
+                AND fv.est_ven_codigo <> 3
+            ", [$item->idInstitucion, $item->idInstitucion, $id_periodo]);
+    
+            // Validar si tiene ventas activas
             $ventas = DB::table('f_venta')
-                ->where(function($q) use ($item) {
+                ->where(function ($q) use ($item) {
                     $q->where('institucion_id', $item->idInstitucion)
-                    ->orWhere('id_ins_depacho', $item->idInstitucion);
+                      ->orWhere('id_ins_depacho', $item->idInstitucion);
                 })
                 ->where('periodo_id', $id_periodo)
-                ->whereIn('idtipodoc', [1,2,3,4])
+                ->whereIn('idtipodoc', [1, 2, 3, 4])
                 ->where('est_ven_codigo', '<>', 3)
                 ->exists();
-
+    
             // Añadir campo al objeto
             $query[$key]->estado_ventas = $ventas ? 'Tiene ventas' : 'No tiene ventas';
-            
         }
-
+    
         return $query;
 
         // $lista = DB::SELECT("SELECT i.idInstitucion, i.nombreInstitucion,i.punto_venta
@@ -1514,68 +1528,101 @@ class AbonoController extends Controller
         }
         // 1. Abonos sin facturas (solo notas)
         $abonosSinFacturas = DB::table('abono as ab')
-        ->select(
-            'ab.abono_ruc_cliente',
-            'ab.abono_empresa',
-            DB::raw("SUM(ab.abono_facturas) AS suma_abono_facturas"),
-            DB::raw("CONCAT(u.nombres, ' - ',u.apellidos) AS nombre_cliente"),
-            DB::raw("CASE
-                        WHEN ab.abono_facturas > 0
-                            AND (fv.ven_codigo IS NULL OR fv.idtipodoc NOT IN (1))
-                        THEN 'No hay documentos'
-                        ELSE 'Existen documentos'
-                    END AS estado_documentos")
-        )
-        ->leftJoin('usuario as u', 'u.cedula', '=', 'ab.abono_ruc_cliente') // Asegúrate que esta relación es correcta
-        ->leftJoin('f_venta as fv', function ($join) {
-            $join->on('ab.abono_ruc_cliente', '=', 'fv.ruc_cliente')
-                ->on('ab.abono_empresa', '=', 'fv.id_empresa')
-                ->whereIn('fv.idtipodoc', [1]); // Solo documentos con idtipodoc 3 o 4
-        })
-        ->where('ab.abono_estado', '=', 0) // Estado activo
-        ->where('ab.abono_tipo', '<>', 4) // Excluir tipo 4
-        ->where('ab.abono_notas', '=', 0.00) // Solo abonos con facturas
-        ->where('ab.abono_facturas', '>', 0) // Solo abonos con notas
-        ->where('ab.abono_periodo', '=', $request->periodo)
-        ->where(function ($query) {
-            // Filtra solo los abonos que no tienen documentos asociados de tipo 3 o 4
-            $query->whereNull('fv.ven_codigo')
-                ->orWhereNotIn('fv.idtipodoc', [1]);
-        })
-        ->groupBy('ab.abono_ruc_cliente', 'ab.abono_empresa') // Agrupar por cliente y empresa
-        ->get();
+            ->select(
+                // 🔹 Identificador del cliente (RUC)
+                'ab.abono_ruc_cliente',
+
+                // 🔹 Empresa a la que pertenece el abono
+                'ab.abono_empresa',
+
+                // 🔹 Suma total de valores de abono con facturas
+                DB::raw('SUM(ab.abono_facturas) AS suma_abono_facturas'),
+
+                // 🔹 Nombre completo del cliente (Apellidos + Nombres)
+                DB::raw("CONCAT(u.apellidos, ' ', u.nombres) AS nombre_cliente"),
+
+                // 🔹 Estado: si no hay documentos vinculados → "No hay documentos"
+                DB::raw("CASE 
+                            WHEN COUNT(fv.ven_codigo) = 0 THEN 'No hay documentos'
+                            ELSE 'Existen documentos'
+                        END AS estado_documentos")
+            )
+
+            // 🧩 Relacionar con la tabla de usuarios
+            ->leftJoin('usuario as u', 'u.cedula', '=', 'ab.abono_ruc_cliente')
+
+            // 🧩 Relacionar con las facturas (f_venta)
+            ->leftJoin('f_venta as fv', function ($join) use ($request) {
+                $join->on('fv.ruc_cliente', '=', 'ab.abono_ruc_cliente')
+                    ->on('fv.id_empresa', '=', 'ab.abono_empresa')
+                    ->where('fv.idtipodoc', '=', 1) // Solo facturas
+                    ->where('fv.periodo_id', '=', $request->periodo); // Mismo periodo
+            })
+
+            // 📋 Filtros base
+            ->where('ab.abono_estado', 0)           // Estado activo
+            ->where('ab.abono_tipo', '<>', 4)       // Excluir tipo 4
+            ->where('ab.abono_notas', 0.00)         // No tener notas asociadas
+            ->where('ab.abono_facturas', '>', 0)    // Tener abonos con facturas
+            ->where('ab.abono_periodo', '=', $request->periodo) // Periodo actual
+
+            // 📦 Agrupar por cliente y empresa
+            ->groupBy('ab.abono_ruc_cliente', 'ab.abono_empresa', 'u.nombres', 'u.apellidos')
+
+            // ❗ Solo mostrar los que NO tienen documentos (sin facturas)
+            ->havingRaw('COUNT(fv.ven_codigo) = 0')
+
+            // 📤 Ejecutar la consulta
+            ->get();
+
 
         // 2. Abonos sin notas (solo facturas)
         $abonosSinNotas = DB::table('abono as ab')
             ->select(
+                // 🔹 Identificador del cliente (RUC)
                 'ab.abono_ruc_cliente',
+
+                // 🔹 Empresa a la que pertenece el abono
                 'ab.abono_empresa',
-                DB::raw("SUM(ab.abono_notas) AS suma_abono_notas"),
-                DB::raw("CONCAT(u.nombres, ' - ',u.apellidos) AS nombre_cliente"),
-                DB::raw("CASE
-                            WHEN ab.abono_notas > 0
-                                AND (fv.ven_codigo IS NULL OR fv.idtipodoc NOT IN (3, 4))
-                            THEN 'No hay documentos'
+
+                // 🔹 Suma total de valores de abono con notas
+                DB::raw('SUM(ab.abono_notas) AS suma_abono_notas'),
+
+                // 🔹 Nombre completo del cliente (Apellidos + Nombres)
+                DB::raw("CONCAT(u.apellidos, ' ', u.nombres) AS nombre_cliente"),
+
+                // 🔹 Estado: si no hay documentos de tipo 3 o 4 vinculados → "No hay documentos"
+                DB::raw("CASE 
+                            WHEN COUNT(fv.ven_codigo) = 0 THEN 'No hay documentos'
                             ELSE 'Existen documentos'
                         END AS estado_documentos")
             )
-            ->leftJoin('usuario as u', 'u.cedula', '=', 'ab.abono_ruc_cliente') // Asegúrate que esta relación es correcta
-            ->leftJoin('f_venta as fv', function ($join) {
-                $join->on('ab.abono_ruc_cliente', '=', 'fv.ruc_cliente')
-                    ->on('ab.abono_empresa', '=', 'fv.id_empresa')
-                    ->whereIn('fv.idtipodoc', [3, 4]); // Solo documentos con idtipodoc 3 o 4
+
+            // 🧩 Relacionar con la tabla de usuarios
+            ->leftJoin('usuario as u', 'u.cedula', '=', 'ab.abono_ruc_cliente')
+
+            // 🧩 Relacionar con las notas (f_venta)
+            ->leftJoin('f_venta as fv', function ($join) use ($request) {
+                $join->on('fv.ruc_cliente', '=', 'ab.abono_ruc_cliente')
+                    ->on('fv.id_empresa', '=', 'ab.abono_empresa')
+                    ->whereIn('fv.idtipodoc', [3, 4]) // Solo notas de crédito o débito
+                    ->where('fv.periodo_id', '=', $request->periodo); // Mismo periodo
             })
-            ->where('ab.abono_estado', '=', 0) // Estado activo
-            ->where('ab.abono_tipo', '<>', 4) // Excluir tipo 4
-            ->where('ab.abono_facturas', '=', 0.00) // Solo abonos con facturas
-            ->where('ab.abono_notas', '>', 0) // Solo abonos con notas
-            ->where('ab.abono_periodo', '=', $request->periodo)
-            ->where(function ($query) {
-                // Filtra solo los abonos que no tienen documentos asociados de tipo 3 o 4
-                $query->whereNull('fv.ven_codigo')
-                    ->orWhereNotIn('fv.idtipodoc', [3, 4]);
-            })
-            ->groupBy('ab.abono_ruc_cliente', 'ab.abono_empresa') // Agrupar por cliente y empresa
+
+            // 📋 Filtros base
+            ->where('ab.abono_estado', 0)           // Estado activo
+            ->where('ab.abono_tipo', '<>', 4)       // Excluir tipo 4
+            ->where('ab.abono_facturas', '=', 0.00) // No tener facturas asociadas
+            ->where('ab.abono_notas', '>', 0)       // Tener abonos con notas
+            ->where('ab.abono_periodo', '=', $request->periodo) // Periodo actual
+
+            // 📦 Agrupar por cliente y empresa
+            ->groupBy('ab.abono_ruc_cliente', 'ab.abono_empresa', 'u.nombres', 'u.apellidos')
+
+            // ❗ Solo mostrar los que NO tienen documentos (sin notas)
+            ->havingRaw('COUNT(fv.ven_codigo) = 0')
+
+            // 📤 Ejecutar la consulta
             ->get();
 
         if ($abonosSinFacturas->isNotEmpty()) {
@@ -2301,7 +2348,7 @@ class AbonoController extends Controller
 
     public function obtenerDetallesDevolucion(Request $request)
     {
-        // Validamos que el parámetro 'documento' esté presente
+        // Validar parámetros
         $request->validate([
             'documento' => 'required|string',
         ]);
@@ -2310,16 +2357,21 @@ class AbonoController extends Controller
         $documento = $request->input('documento');
         $empresa = $request->input('empresa');
 
-        //tipo combo
+        /**
+         * ============================================================
+         * 🟢 DEVOLUCIONES NORMALES (TABLAS: codigoslibros_devolucion_*)
+         * ============================================================
+         */
+
+        // Tipo 1 (combo)
         $detallesDevolucionTipo1 = DB::table('codigoslibros_devolucion_header as cdh')
             ->join('codigoslibros_devolucion_son as cls', 'cdh.id', '=', 'cls.codigoslibros_devolucion_id')
-            ->leftJoin('institucion as i', 'i.idInstitucion', '=', 'cdh.id_cliente')  // LEFT JOIN para traer nombreInstitucion
+            ->leftJoin('institucion as i', 'i.idInstitucion', '=', 'cdh.id_cliente')
             ->where('cdh.estado', '<>', '0')
             ->where('cls.documento', '=', $documento)
             ->where('cls.id_empresa', '=', $empresa)
             ->where('cls.estado', '<>', 0)
-            ->where('cls.tipo_codigo', '=', 1)  // Solo tipo_codigo = 1
-            // ->whereNotNull('cls.combo')
+            ->where('cls.tipo_codigo', '=', 1)
             ->groupBy('cdh.codigo_devolucion', 'cdh.estado', 'cls.documento', 'cls.id_empresa', 'cls.id_cliente', 'i.nombreInstitucion')
             ->select(
                 'cdh.id',
@@ -2329,18 +2381,19 @@ class AbonoController extends Controller
                 'cls.id_empresa',
                 'cls.id_cliente',
                 'i.nombreInstitucion',
-                DB::raw('ROUND(SUM(cls.precio * cls.combo_cantidad_devuelta), 2) as total_precio') // Multiplicamos por combo_cantidad_devuelta
+                DB::raw('ROUND(SUM(cls.precio * cls.combo_cantidad_devuelta), 2) as total_precio'),
+                DB::raw("'Normal' as DevolucionTipo")
             )
             ->get();
 
-        //tipo normal
+        // Tipo 0 (normal)
         $detallesDevolucionTipo0 = DB::table('codigoslibros_devolucion_header as cdh')
             ->join('codigoslibros_devolucion_son as cls', 'cdh.id', '=', 'cls.codigoslibros_devolucion_id')
-            ->leftJoin('institucion as i', 'i.idInstitucion', '=', 'cdh.id_cliente')  // LEFT JOIN para traer nombreInstitucion
+            ->leftJoin('institucion as i', 'i.idInstitucion', '=', 'cdh.id_cliente')
             ->where('cdh.estado', '<>', '0')
             ->where('cls.documento', '=', $documento)
             ->where('cls.id_empresa', '=', $empresa)
-            ->where('cls.tipo_codigo', '=', 0)  // Solo tipo_codigo = 0
+            ->where('cls.tipo_codigo', '=', 0)
             ->where('cls.estado', '<>', 0)
             ->whereNull('cls.combo')
             ->groupBy('cdh.codigo_devolucion', 'cdh.estado', 'cls.documento', 'cls.id_empresa', 'cls.id_cliente', 'i.nombreInstitucion')
@@ -2352,114 +2405,162 @@ class AbonoController extends Controller
                 'cls.id_empresa',
                 'cls.id_cliente',
                 'i.nombreInstitucion',
-                DB::raw('ROUND(SUM(cls.precio), 2) as total_precio') // No multiplicamos, solo usamos el precio
+                DB::raw('ROUND(SUM(cls.precio), 2) as total_precio'),
+                DB::raw("'Normal' as DevolucionTipo")
             )
             ->get();
 
         $detallesDevolucion = $detallesDevolucionTipo1->merge($detallesDevolucionTipo0);
 
+        /**
+         * ============================================================
+         * 🟡 DEVOLUCIONES DE COMBOS DESARMADOS
+         * (TABLAS: codigoslibros_devolucion_desarmados_*)
+         * ============================================================
+         */
+        $detallesDevolucionDesarmados = DB::table('codigoslibros_devolucion_desarmados_header as cdh')
+            ->join('codigoslibros_devolucion_desarmados_son as cls', 'cdh.id', '=', 'cls.codigoslibros_devolucion_desarmados_header_id')
+            ->leftJoin('institucion as i', 'i.idInstitucion', '=', 'cdh.institucion_id')
+            ->where('cdh.estado', '<>', 0)
+            ->where('cdh.estado', '<>', 3)
+            ->where('cls.documento', '=', $documento)
+            ->where('cls.id_empresa', '=', $empresa)
+            ->groupBy(
+                'cdh.id',
+                'cdh.codigo_devolucion',
+                'cdh.estado',
+                'cls.documento',
+                'cls.id_empresa'
+            )
+            ->select(
+                'cdh.id',
+                'cdh.codigo_devolucion',
+                'cdh.estado',
+                'cls.documento',
+                'cls.id_empresa',
+                DB::raw('cdh.institucion_id as id_cliente'),
+                'i.nombreInstitucion',
+                DB::raw('ROUND(SUM(CASE WHEN cls.estado_liquidacion = 2 THEN 0 ELSE cls.precio END), 2) as total_precio'),
+                DB::raw("'CombosSueltos' as DevolucionTipo")
+            )
+            ->get();
 
+        // Unimos ambos tipos de devoluciones
+        $detallesDevolucion = $detallesDevolucion->merge($detallesDevolucionDesarmados);
 
-        // Convertimos la colección a un arreglo
+        // Convertimos la colección a array para procesar
         $detallesDevolucionArray = $detallesDevolucion->toArray();
 
-        // Recorrer cada uno de los detalles de devolución
+        /**
+         * ============================================================
+         * 🔵 PROCESAR DETALLES DE CADA DEVOLUCIÓN
+         * ============================================================
+         */
         foreach ($detallesDevolucionArray as $key => $item) {
-            // Consultar las ventas relacionadas con el documento
+            // Buscar descuento de la venta asociada
             $fVentas = DB::table('f_venta as fv')
-                ->join('f_detalle_venta as fdv', function($join) {
+                ->join('f_detalle_venta as fdv', function ($join) {
                     $join->on('fdv.ven_codigo', '=', 'fv.ven_codigo')
                         ->on('fdv.id_empresa', '=', 'fv.id_empresa');
                 })
                 ->where('fv.ven_codigo', '=', $item->documento)
                 ->where('fv.id_empresa', '=', $empresa)
-                ->where('fv.est_ven_codigo', '<>', 3)
-                ->where('fdv.det_ven_dev', '>', 0)
-                ->first();  // Usamos `first()` para obtener el primer resultado
+                ->where('fv.est_ven_codigo', '<>', 3);
 
-            // Verificamos si se obtuvo un resultado de la venta
+            // 👇 Solo aplica la condición si es devolución normal
+            if ($item->DevolucionTipo === 'Normal') {
+                $fVentas->where('fdv.det_ven_dev', '>', 0);
+            }
+
+            $fVentas = $fVentas->first();
+
             if ($fVentas) {
-                $detallesDevolucionArray[$key]->descuento = $fVentas->ven_desc_por;
-                // Calcular el valor con descuento para este detalle de devolución
-                $detallesDevolucionArray[$key]->ValorConDescuento = round(round($item->total_precio, 2) - round((round($item->total_precio, 2) * $fVentas->ven_desc_por) / 100, 2), 2);
+                $item->descuento = $fVentas->ven_desc_por;
+                $item->ValorConDescuento = round($item->total_precio - ($item->total_precio * $fVentas->ven_desc_por / 100), 2);
             } else {
-                // Si no hay una venta asociada, asignamos 0 al descuento y el valor con descuento
-                $detallesDevolucionArray[$key]->descuento = 0;
-                $detallesDevolucionArray[$key]->ValorConDescuento = round($item->total_precio, 2);
-                $detallesDevolucionArray[$key]->total_precio = round($item->total_precio, 2);
+                $item->descuento = 0;
+                $item->ValorConDescuento = round($item->total_precio, 2);
             }
         }
+
+
         $detallesDevolucionArray = collect($detallesDevolucionArray);
 
+        /**
+         * ============================================================
+         * 🧩 AGREGAR CÓDIGOS Y DETALLES DE VENTA
+         * ============================================================
+         */
         foreach ($detallesDevolucionArray as $key => $item) {
-            // Obtener los códigos relacionados con la devolución
-            $codigos = DB::table('codigoslibros_devolucion_son as cls')
-                ->join('codigoslibros_devolucion_header as cdh', 'cdh.id', '=', 'cls.codigoslibros_devolucion_id')
-                ->where('cdh.estado', '<>', 0)
-                ->where('cls.codigoslibros_devolucion_id', '=', $item->id)
-                ->where('cls.documento', '=', $item->documento)
-                ->select('cls.codigo', 'cls.codigo_union', 'cls.pro_codigo', 'cls.tipo_codigo', 'cls.combo_cantidad_devuelta')
-                ->get();
+            if ($item->DevolucionTipo === 'Normal') {
+                $codigos = DB::table('codigoslibros_devolucion_son as cls')
+                    ->join('codigoslibros_devolucion_header as cdh', 'cdh.id', '=', 'cls.codigoslibros_devolucion_id')
+                    ->where('cdh.estado', '<>', 0)
+                    ->where('cls.codigoslibros_devolucion_id', '=', $item->id)
+                    ->where('cls.documento', '=', $item->documento)
+                    ->select('cls.codigo', 'cls.codigo_union', 'cls.pro_codigo', 'cls.tipo_codigo', 'cls.combo_cantidad_devuelta', DB::raw('0 as estado_liquidacion'))
+                    ->get();
+            } else { // Combos sueltos
+                $codigos = DB::table('codigoslibros_devolucion_desarmados_son as cls')
+                    ->join('codigoslibros_devolucion_desarmados_header as cdh', 'cdh.id', '=', 'cls.codigoslibros_devolucion_desarmados_header_id')
+                    ->where('cdh.estado', '<>', 0)
+                    ->where('cls.codigoslibros_devolucion_desarmados_header_id', '=', $item->id)
+                    ->where('cls.documento', '=', $item->documento)
+                    ->select(
+                        'cls.codigo',
+                        'cls.codigo_union',
+                        'cls.codigo_combo as pro_codigo',
+                        DB::raw('0 as tipo_codigo'),
+                        DB::raw('1 as combo_cantidad_devuelta'),
+                        'cls.estado_liquidacion',
+                        'cls.precio'
+                    )
+                    ->get();
+            }
 
-            // Aquí es donde ajustamos la lógica para repetir los códigos
             $codigosModificados = collect();
-
             foreach ($codigos as $codigo) {
-                // Verificamos si el tipo de código es 1, y si es así, lo repetimos
-                if ($codigo->tipo_codigo == 1) {
-                    // Repetir el código por la cantidad de devuelta
-                    for ($i = 0; $i < $codigo->combo_cantidad_devuelta; $i++) {
-                        $codigosModificados->push([
-                            'codigo' => $codigo->codigo,
-                            'codigo_union' => $codigo->codigo_union,
-                            'pro_codigo' => $codigo->pro_codigo,
-                            'tipo_codigo' => $codigo->tipo_codigo
-                        ]);
-                    }
-                } else {
-                    // Si no es tipo_codigo 1, simplemente agregamos el código sin cambios
+                $esRegalado = ($codigo->estado_liquidacion == 2);
+                $precioReal = $esRegalado ? 0 : (isset($codigo->precio) ? $codigo->precio : 0);
+
+                for ($i = 0; $i < ($codigo->combo_cantidad_devuelta ?? 1); $i++) {
                     $codigosModificados->push([
                         'codigo' => $codigo->codigo,
                         'codigo_union' => $codigo->codigo_union,
                         'pro_codigo' => $codigo->pro_codigo,
-                        'tipo_codigo' => $codigo->tipo_codigo
+                        'tipo_codigo' => $codigo->tipo_codigo,
+                        'precio' => $precioReal,
+                        'es_regalado' => $esRegalado,
                     ]);
                 }
             }
 
-            // Asignamos los códigos modificados a la propiedad `codigos`
             $detallesDevolucionArray[$key]->codigos = $codigosModificados;
 
-            // Filtrar códigos únicos por pro_codigo (eliminamos duplicados)
+            // Filtrar códigos únicos por pro_codigo
             $codigosUnicos = $codigosModificados->unique('pro_codigo');
 
-            // Inicializamos un arreglo vacío para almacenar los detalles de venta
+            // Obtener detalle de venta
             $detalleVenta = [];
-
-            // Iteramos sobre los códigos únicos para obtener los detalles de venta
             foreach ($codigosUnicos as $codigo) {
-                // Verificar que el código es un objeto válido y tiene la propiedad 'pro_codigo'
-                if (isset($codigo->pro_codigo)) {
-                    // Consultamos el detalle de venta para cada código de producto
+                if (isset($codigo['pro_codigo'])) {
                     $detallesDeVentaPorCodigo = DB::table('f_detalle_venta as fdv')
                         ->where('fdv.ven_codigo', '=', $item->documento)
                         ->where('fdv.id_empresa', '=', $item->id_empresa)
-                        ->where('fdv.pro_codigo', '=', $codigo->pro_codigo)
+                        ->where('fdv.pro_codigo', '=', $codigo['pro_codigo'])
                         ->select('fdv.pro_codigo', 'fdv.det_ven_cantidad', 'fdv.det_ven_dev', 'fdv.det_ven_valor_u')
                         ->get();
 
-                    // Agregar los detalles de venta encontrados a detalleVenta
                     $detalleVenta = array_merge($detalleVenta, $detallesDeVentaPorCodigo->toArray());
                 }
             }
 
-            // Asignamos todos los detalles de venta encontrados a la propiedad detalleVenta
             $detallesDevolucionArray[$key]->detalleVenta = $detalleVenta;
         }
 
-        // Retornamos los detalles de devolución como un arreglo
         return $detallesDevolucionArray;
     }
+
 
     public function verifyCode(Request $request)
     {
@@ -3592,6 +3693,17 @@ class AbonoController extends Controller
             'success' => true,
             'data' => $formulario,
         ]);
+    }
+
+    public function get_facturaRealxParametro(Request $request){
+        $query = DB::SELECT("SELECT fv.* FROM f_venta_agrupado fv
+        LEFT JOIN usuario u ON fv.ven_cliente = u.idusuario
+        WHERE fv.periodo_id='$request->periodo'
+        AND fv.id_empresa='$request->empresa'
+        AND u.cedula REGEXP '$request->cliente'
+        AND fv.est_ven_codigo = 0
+        ");
+        return $query;
     }
 
 }
