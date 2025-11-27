@@ -185,15 +185,19 @@ class GestionCodigosController extends Controller
                 }
                 // validacion codigo_combo
                 if($request->chkCodigo_combo                == '1'){
-                    //validar que el combo exista en la codigos_combos columna codigo
-                    $validarCombo = DB::SELECT("SELECT * FROM codigos_combos WHERE codigo = '$request->codigo_combo'");
-                    if(empty($validarCombo)){
-                        $arrayProblemas[] = [
-                            "codigo" => $item->codigo,
-                            "message" => "El codigo combo no existe en la tabla codigos_combos"
-                        ];
-                        continue;
+                    if($request->codigo_combo == null || $request->codigo_combo == ""){
+                    }else{
+                        //validar que el combo exista en la codigos_combos columna codigo
+                        $validarCombo = DB::SELECT("SELECT * FROM codigos_combos WHERE codigo = '$request->codigo_combo'");
+                        if(empty($validarCombo)){
+                            $arrayProblemas[] = [
+                                "codigo" => $item->codigo,
+                                "message" => "El codigo combo no existe en la tabla codigos_combos"
+                            ];
+                            continue;
+                        }
                     }
+
                 }
                 $codigo->save();
                 if($codigo){

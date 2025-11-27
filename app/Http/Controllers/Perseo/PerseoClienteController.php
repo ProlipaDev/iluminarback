@@ -211,14 +211,27 @@ class PerseoClienteController extends Controller
     public function clientes_consulta(Request $request)
     {
         $ifSolinfa  = 0;
-        $cedula     = $request->busqueda;
         $empresa    = $request->empresa;
         $process    = [];
         if($request->ifSolinfa){ $ifSolinfa = 1; }
+        
         try {
-            $formData = [
-                "identificacion"       => $cedula,
-            ];
+            $formData = [];
+            
+            // Determinar qué tipo de búsqueda realizar
+            if ($request->has('identificacion') && !empty($request->identificacion)) {
+                // Búsqueda por CI/RUC
+                $formData["identificacion"] = $request->identificacion;
+            } elseif ($request->has('contenido') && !empty($request->contenido)) {
+                // Búsqueda por nombre/razón social
+                $formData["contenido"] = $request->contenido;
+            } elseif ($request->has('busqueda') && !empty($request->busqueda)) {
+                // Compatibilidad con versión anterior (por defecto búsqueda por identificación)
+                $formData["identificacion"] = $request->busqueda;
+            } else {
+                return ["status" => "0", "message" => "Debe proporcionar un criterio de búsqueda válido."];
+            }
+            
             $url        = "clientes_consulta";
             if($ifSolinfa == 1) { $process = $this->tr_SolinfaPost($url, $formData, $empresa); }
             else                { $process = $this->tr_PerseoPost($url, $formData, $empresa); }

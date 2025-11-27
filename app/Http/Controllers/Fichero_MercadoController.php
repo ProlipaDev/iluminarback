@@ -67,6 +67,8 @@ class Fichero_MercadoController extends Controller
                 return $this->Busqueda_get_Fichero_Mercado_Todo_x_Insitucion_y_Asesor($request);
             case 'Busqueda_get_Fichero_Mercado_Todo_Instituciones_Root':
                 return $this->Busqueda_get_Fichero_Mercado_Todo_Instituciones_Root($request);
+            case 'Busqueda_get_Fichero_Mercado_Todo_Export_Completo':
+                return $this->Busqueda_get_Fichero_Mercado_Todo_Export_Completo($request);
             default:
                 return response()->json(['error' => 'Acción no válida'], 400);
         }
@@ -90,6 +92,8 @@ class Fichero_MercadoController extends Controller
                 return $this->GuardarDatos_FicheroAprobado($request);
             case 'GuardarDatos_FicheroRechazado':
                 return $this->GuardarDatos_FicheroRechazado($request);
+            case 'Fechas_Entrega_muestras_masivo':
+                return $this->Fechas_Entrega_muestras_masivo($request);
             default:
                 return response()->json(['error' => 'Acción no válida'], 400);
         }
@@ -183,17 +187,125 @@ class Fichero_MercadoController extends Controller
         return $query;
     }
 
-    public function Fechas_Entrega_muestras_x_institucion($request){
-        $query = DB::SELECT("SELECT au.*, CONCAT(us_create.nombres , ' ' , us_create.apellidos, ' (',us_create.cedula,')') AS us_create_planificacion,
-            CONCAT(us_finalizo.nombres , ' ' , us_finalizo.apellidos, ' (',us_finalizo.cedula,')') AS us_finalizo_planificacion
+    public function Fechas_Entrega_muestras_x_institucion($request)
+    {
+        // 1️⃣ Obtener fechas del periodo escolar
+        $periodo = DB::table('periodoescolar')
+            ->where('idperiodoescolar', $request->periodo_id)
+            ->first();
+        if (!$periodo) {
+            return [
+                'items' => [],
+                'opciones_individuales_seleccionadas' => []
+            ];
+        }
+        $fecha_inicio = $periodo->fecha_inicial;
+        $fecha_fin    = $periodo->fecha_final;
+        // 2️⃣ Query
+        $query = DB::select("SELECT au.*,
+                CONCAT(us_create.nombres,' ',us_create.apellidos,' (',us_create.cedula,')') AS us_create_planificacion,
+                CONCAT(us_finalizo.nombres,' ',us_finalizo.apellidos,' (',us_finalizo.cedula,')') AS us_finalizo_planificacion
             FROM agenda_usuario au
             LEFT JOIN usuario us_create ON au.usuario_creador = us_create.idusuario
             LEFT JOIN usuario us_finalizo ON au.usuario_editor = us_finalizo.idusuario
-            WHERE au.institucion_id = $request->institucion_id
-            AND au.periodo_id = $request->periodo_id
-            AND JSON_UNQUOTE(JSON_EXTRACT(au.opciones, '$.entrega_muestras')) = 'true'
-            ");
-        return $query;
+            WHERE au.institucion_id = ?
+            AND au.startDate BETWEEN ? AND ?
+        ", [
+            $request->institucion_id,
+            $fecha_inicio,
+            $fecha_fin
+        ]);
+        $todas_las_opciones = [];
+        // 3️⃣ Procesar item por item
+        foreach ($query as $item) {
+            $op = json_decode($item->opciones, true);
+            // ✅ VALIDACIÓN CLAVE
+            if (!is_array($op)) {
+                $op = [];
+            }
+            $seleccionadas = [];
+            foreach ($op as $key => $value) {
+                if ($value === true) {
+                    $texto = preg_replace('/(?<!^)[A-Z]/', ' $0', $key);
+                    $texto = str_replace('_', ' ', $texto);
+                    $texto = ucwords($texto);
+                    $seleccionadas[] = $texto;
+                }
+            }
+            $item->opciones_seleccionadas = implode(', ', $seleccionadas);
+            $todas_las_opciones = array_merge($todas_las_opciones, $seleccionadas);
+        }
+        return [
+            'items' => $query,
+            'opciones_individuales_seleccionadas' => array_values(array_unique($todas_las_opciones))
+        ];
+    }
+
+    public function Fechas_Entrega_muestras_masivo(Request $request)
+    {
+        $ficheros = $request->ficheros;
+        $resultado = [];
+        foreach ($ficheros as $fichero) {
+            // 🔹 Validación mínima
+            if (!$fichero['idInstitucion'] || !$fichero['idperiodoescolar']) {
+                $resultado[] = [
+                    'idInstitucion'     => $fichero['idInstitucion'],
+                    'idperiodoescolar'  => $fichero['idperiodoescolar'],
+                    'entregas_muestras' => []
+                ];
+                continue;
+            }
+            // 1️⃣ Obtener fechas del periodo
+            $periodo = DB::table('periodoescolar')
+                ->where('idperiodoescolar', $fichero['idperiodoescolar'])
+                ->first();
+            $fecha_inicio = $periodo->fecha_inicial;
+            $fecha_fin    = $periodo->fecha_final;
+            // 2️⃣ Consulta principal
+            $query = DB::select("
+                SELECT
+                    au.*,
+                    CONCAT(us_create.nombres,' ',us_create.apellidos,' (',us_create.cedula,')') AS us_create_planificacion,
+                    CONCAT(us_finalizo.nombres,' ',us_finalizo.apellidos,' (',us_finalizo.cedula,')') AS us_finalizo_planificacion
+                FROM agenda_usuario au
+                LEFT JOIN usuario us_create ON au.usuario_creador = us_create.idusuario
+                LEFT JOIN usuario us_finalizo ON au.usuario_editor = us_finalizo.idusuario
+                WHERE au.institucion_id = ?
+                AND au.startDate BETWEEN ? AND ?
+            ", [
+                $fichero['idInstitucion'],
+                $fecha_inicio,
+                $fecha_fin
+            ]);
+            // 3️⃣ Procesar las opciones seleccionadas
+            foreach ($query as $item) {
+                // Intentar decodificar JSON
+                $op = json_decode($item->opciones, true);
+                // Asegurar que $op sea array para evitar error "Invalid argument supplied for foreach"
+                $op = is_array($op) ? $op : [];
+                $seleccionadas = [];
+                foreach ($op as $key => $value) {
+                    if ($value === true) {
+                        // Insertar espacios antes de mayúsculas
+                        $texto = preg_replace('/(?<!^)[A-Z]/', ' $0', $key);
+                        // Reemplazar guiones bajos
+                        $texto = str_replace('_', ' ', $texto);
+                        // Capitalizar
+                        $texto = ucwords($texto);
+                        $seleccionadas[] = $texto;
+                    }
+                }
+                // Devolver como string separado por comas
+                $item->opciones_seleccionadas = implode(', ', $seleccionadas);
+            }
+            // 4️⃣ Agregar resultado final del fichero
+            $resultado[] = [
+                'idInstitucion'     => $fichero['idInstitucion'],
+                'idperiodoescolar'  => $fichero['idperiodoescolar'],
+                'entregas_muestras' => $query
+            ];
+        }
+        return $resultado;
     }
 
     public function Verificar_GetFicheroSeleccionado_Existencia($request)
@@ -485,6 +597,127 @@ class Fichero_MercadoController extends Controller
 
         return $query;
     }
+
+    public function Busqueda_get_Fichero_Mercado_Todo_Export_Completo()
+    {
+
+        // 1️⃣ FICHEROS PRINCIPALES
+        $ficheros = DB::table('fichero_mercado as fm')
+            ->join('institucion as ins', 'fm.idInstitucion', '=', 'ins.idInstitucion')
+            ->leftJoin('usuario as us_asesor_fichero', 'ins.asesor_id', '=', 'us_asesor_fichero.idusuario')
+            ->leftJoin('usuario as us_asesor_ins', 'ins.asesor_id', '=', 'us_asesor_ins.idusuario')
+            ->leftJoin('provincia as pro', 'ins.idprovincia', '=', 'pro.idprovincia')
+            ->leftJoin('ciudad as ciu', 'ins.ciudad_id', '=', 'ciu.idciudad')
+            ->leftJoin('parroquia as parr', 'ins.parr_id', '=', 'parr.parr_id')
+            ->leftJoin('periodoescolar as pe', 'fm.idperiodoescolar', '=', 'pe.idperiodoescolar')
+            ->leftJoin('usuario as usercreated', 'fm.user_created', '=', 'usercreated.idusuario')
+            ->leftJoin('usuario as user_edit', 'fm.user_edit', '=', 'user_edit.idusuario')
+            // ➤ LEFT JOIN usando valores dentro del JSON
+            ->leftJoin('usuario as user_envia', DB::raw('user_envia.idusuario'), '=', DB::raw("JSON_UNQUOTE(JSON_EXTRACT(fm.info_enviar_para_aprobacion, '$.user_envia_para_aprobacion'))"))
+            ->leftJoin('usuario as user_aprob', DB::raw('user_aprob.idusuario'), '=', DB::raw("JSON_UNQUOTE(JSON_EXTRACT(fm.info_aprobacion, '$.user_aprobacion'))"))
+            ->leftJoin('usuario as user_rechazo', DB::raw('user_rechazo.idusuario'), '=', DB::raw("JSON_UNQUOTE(JSON_EXTRACT(fm.info_rechazo, '$.user_rechazo'))"))
+            ->select(
+                'fm.fm_id',
+                'ins.idInstitucion',
+                'ins.nombreInstitucion',
+                'ins.direccionInstitucion',
+                'ins.telefonoInstitucion',
+                'ins.email',
+                'ins.punto_venta',
+                'ins.tipo_descripcion',
+                'ins.fecha_fundacion',
+                'fm.fm_trabaja_con_prolipa',
+                'fm.fm_convenio',
+                'fm.fm_cantidad_anios_trabaja_con_prolipa',
+                'fm.fm_tipo_venta',
+                'fm.idperiodoescolar',
+                'fm.fm_decide_compra',
+                'fm.fm_factores_inciden_en_compra',
+                'fm.fm_niveles_educativos',
+                'fm.fm_pensiones',
+                'fm.fm_numero_aulas_completo',
+                'fm.fm_cantidad_estudiantes_x_aula_completo',
+                'fm.fm_SumaTotal_EstudiantesxAula',
+                'fm.fm_cantidad_real_estudiantes',
+                'fm.fm_observacion',
+                'fm.fm_estado',
+                'pe.descripcion as descripcion_periodoescolar',
+                DB::raw("CONCAT(us_asesor_fichero.nombres, ' ', us_asesor_fichero.apellidos) as usuario_asesor_fichero"),
+                DB::raw("CONCAT(us_asesor_ins.nombres, ' ', us_asesor_ins.apellidos) as asesor_institucion"),
+                'pro.nombreprovincia',
+                'ciu.nombre as nombre_ciudad',
+                'parr.parr_nombre',
+                // ➤ Campos del usuario que crea
+                'usercreated.nombres as usercreated_nombres',
+                'usercreated.apellidos as usercreated_apellidos',
+                'fm.created_at',
+                // ➤ Campos del usuario que edita
+                'user_edit.nombres as user_edit_nombres',
+                'user_edit.apellidos as user_edit_apellidos',
+                'fm.updated_at',
+                // ➤ Campos del usuario que envía para aprobación
+                'user_envia.nombres as user_envia_nombres',
+                'user_envia.apellidos as user_envia_apellidos',
+                DB::raw("JSON_UNQUOTE(JSON_EXTRACT(fm.info_enviar_para_aprobacion, '$.fecha_envia_para_aprobacion')) as fecha_envio_aprobacion"),
+                // ➤ Campos del usuario que aprueba
+                'user_aprob.nombres as user_aprobacion_nombres',
+                'user_aprob.apellidos as user_aprobacion_apellidos',
+                DB::raw("JSON_UNQUOTE(JSON_EXTRACT(fm.info_aprobacion, '$.fecha_aprobacion')) as fecha_aprobacion"),
+                // ➤ Campos del usuario que rechaza
+                'user_rechazo.nombres as user_rechazo_nombres',
+                'user_rechazo.apellidos as user_rechazo_apellidos',
+                DB::raw("JSON_UNQUOTE(JSON_EXTRACT(fm.info_rechazo, '$.fecha_rechazo')) as fecha_rechazo"),
+                DB::raw("JSON_UNQUOTE(JSON_EXTRACT(fm.info_rechazo, '$.comentario_rechazo')) as comentario_rechazo"),
+            )
+            ->whereNotNull('ins.asesor_id')
+            ->orderBy('fm.fm_id', 'asc')
+            ->get();
+
+        // 2️⃣ AÑADIR RELACIONES (autoridades y detalles)
+        $ficheros->transform(function ($item) {
+            // Autoridades completas
+            $item->autoridades = DB::table('fichero_mercado_autoridades as fma')
+                ->join('usuario as u', 'fma.usuario_cargo_asignado', '=', 'u.idusuario')
+                ->join('institucion_autoridades as ina', 'fma.fma_cargo', '=', 'ina.ina_id')
+                ->where('fma.fm_id', $item->fm_id)
+                ->select(
+                    'fma.fma_id',
+                    'fma.fma_cargo',
+                    'ina.ina_nombre as cargo',
+                    'u.idusuario',
+                    'u.nombres',
+                    'u.apellidos',
+                    'u.cedula',
+                    'u.telefono',
+                    'u.email',
+                    'u.fecha_nacimiento',
+                    'fma.created_at',
+                    'fma.updated_at'
+                )
+                ->get();
+
+            // Detalles (libros)
+            $item->detalles = DB::table('fichero_mercado_detalle as fmd')
+                ->where('fmd.fm_id', $item->fm_id)
+                ->select(
+                    'fmd.fmd_id',
+                    'fmd.fmd_nombre_libro',
+                    'fmd.fmd_niveles_editoriales',
+                    'fmd.created_at',
+                    'fmd.updated_at'
+                )
+                ->get();
+
+            return $item;
+        });
+
+        // 3️⃣ Retornar en formato estándar
+        return response()->json([
+            'status' => 1,
+            'total' => $ficheros->count(),
+            'data' => $ficheros
+        ]);
+    }
     // METODOS GET FIN
     // METODOS POST INICIO
     public function GuardarDatos_guardarFicheroCabecera(Request $request)
@@ -492,8 +725,26 @@ class Fichero_MercadoController extends Controller
         DB::beginTransaction();
         try {
             $fm_id = $request->input('fm_id');
-
             $usuarioRoot = filter_var($request->input('usuarioRoot'), FILTER_VALIDATE_BOOLEAN);
+
+            // VALIDACIÓN: no permitir fm_tipo_venta vacío si ya tiene pedidos
+            $tipoVenta = $request->input('fm_tipo_venta');
+            $idPeriodo = $request->input('idperiodoescolar');
+            $idInstitucion = $request->input('idInstitucion');
+            $existePedido = DB::table('pedidos')
+                ->where('id_periodo', $idPeriodo)
+                ->where('id_institucion', $idInstitucion)
+                ->whereIn('estado', [0, 1])
+                ->exists();
+            // Si tiene pedido y fm_tipo_venta viene vacío/null/undefined
+            if ($existePedido && ($tipoVenta === null || $tipoVenta === "")) {
+                DB::rollBack(); // opcional
+                return response()->json([
+                    'status' => 2,
+                    'message' => 'No puede dejar vacío el tipo de venta porque la institución ya tiene un pedido registrado.'
+                ]);
+            }
+            // *********************************************************
 
             // 🔒 Validación para usuarios NO root
             if (!$usuarioRoot && $fm_id) {
@@ -534,6 +785,9 @@ class Fichero_MercadoController extends Controller
             $fichero->idperiodoescolar = $request->input('idperiodoescolar');
             $fichero->id_logo_empresa = $request->input('id_logo_empresa');
             $fichero->fm_trabaja_con_prolipa = $request->input('fm_trabaja_con_prolipa');
+            $fichero->fm_convenio = $request->input('fm_convenio');
+            $fichero->fm_cantidad_anios_trabaja_con_prolipa = $request->input('fm_cantidad_anios_trabaja_con_prolipa');
+            $fichero->fm_tipo_venta = $request->input('fm_tipo_venta');
             $fichero->fm_decide_compra = json_encode($request->input('fm_decide_compra'));
             $fichero->fm_factores_inciden_en_compra = json_encode($request->input('fm_factores_inciden_en_compra'));
             $fichero->fm_niveles_educativos = json_encode($request->input('fm_niveles_educativos'));

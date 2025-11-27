@@ -1719,6 +1719,8 @@ class CodigoLibrosController extends Controller
         ini_set('max_execution_time', 6000000);
         $codigos = json_decode($request->data_codigos);
         $codigosNoCambiados     = [];
+        $arrayOldValuesProducto = [];
+        $arrayNewValuesProducto = [];
         $porcentaje             = 0;
         $institucion_id         = $request->institucion_id;
         $periodo_id             = $request->periodo_id;
@@ -1737,19 +1739,26 @@ class CodigoLibrosController extends Controller
                 $messageIngreso                 = "";
                 //valida que el codigo existe
                 if(count($validar)>0){
+
                     $codigo_union               = $validar[0]->codigo_union;
                     //VALIDAR CODIGOS QUE NO TENGA CODIGO UNION
                     $getcodigoPrimero = CodigosLibros::Where('codigo',$item->codigo)->get();
+                    $codigo_liquidacion = $validar[0]->codigo_liquidacion;
                     if($codigo_union != null || $codigo_union != ""){
                         //devolucion
                         $getcodigoUnion     = CodigosLibros::Where('codigo',$codigo_union)->get();
-                        $getIngreso         =  $this->codigosRepository->updateDevolucion($item->codigo,$codigo_union);
+                        $getIngreso         = $this->codigosRepository->updateDevolucion($item->codigo,$codigo_union,$codigo_liquidacion);
                         $ingreso            = $getIngreso["ingreso"];
                         $messageIngreso     = $getIngreso["messageIngreso"];
                         //si ingresa correctamente
                         if($ingreso == 1){
+                            /// Guardar en historico de STOCK en el array
+                            if(count($getIngreso["oldValues"]) > 0){
+                                $arrayOldValuesProducto[]   = $getIngreso["oldValues"];
+                                $arrayNewValuesProducto[]   = $getIngreso["newValues"];
+                            }
                             $newValusPrimero = CodigosLibros::where('codigo',$item->codigo)->get();
-                            $newValuesUnion      = CodigosLibros::where('codigo',$codigo_union)->get();
+                            $newValuesUnion  = CodigosLibros::where('codigo',$codigo_union)->get();
                             $porcentaje++;
                             //====CODIGO====
                             //ingresar en el historico codigo
@@ -1766,10 +1775,15 @@ class CodigoLibrosController extends Controller
                     }
                     //ACTUALIZAR CODIGO SIN UNION
                     else{
-                        $getIngreso         = $this->codigosRepository->updateDevolucion($item->codigo,"no");
+                        $getIngreso         = $this->codigosRepository->updateDevolucion($item->codigo,"no",$codigo_liquidacion);
                         $ingreso            = $getIngreso["ingreso"];
                         $messageIngreso     = $getIngreso["messageIngreso"];
                         if($ingreso == 1){
+                            /// Guardar en historico de STOCK en el array
+                            if(count($getIngreso["oldValues"]) > 0){
+                                $arrayOldValuesProducto[]   = $getIngreso["oldValues"];
+                                $arrayNewValuesProducto[]   = $getIngreso["newValues"];
+                            }
                             $newValuesPrimero    = CodigosLibros::where('codigo',$item->codigo)->get();
                             $porcentaje++;
                             //ingresar en el historico
@@ -1789,13 +1803,33 @@ class CodigoLibrosController extends Controller
                     ];
                 }
             }// fin foreach
-            //cambiar a revisado o devuelto
-            $devolucion = CodigosLibrosDevolucionDesarmadoHeader::find($id_devolucion);
-            if($devolucion->estado == 0){
-                $devolucion->estado = 1; // Cambiar a devuelto
-                $devolucion->user_devuelve = $id_usuario;
-                $devolucion->fecha_devuelve = date('Y-m-d H:i:s');
-                $devolucion->save();
+
+            if($porcentaje > 0){
+                //cambiar a revisado o devuelto
+                $devolucion = CodigosLibrosDevolucionDesarmadoHeader::find($id_devolucion);
+                if($devolucion->estado == 0){
+                    $devolucion->estado = 1; // Cambiar a devuelto
+                    $devolucion->user_devuelve = $id_usuario;
+                    $devolucion->fecha_devuelve = date('Y-m-d H:i:s');
+                    $devolucion->save();
+                }
+                //======================================actualizar historico stock=======================
+                // Agrupar oldValues por pro_codigo, tomando el último valor
+                $groupedOldValues = $this->agruparPorCodigoPrimerValor($arrayOldValuesProducto);
+                $groupedNewValues = $this->agruparPorCodigo($arrayNewValuesProducto);
+                // Historico
+                if(count($groupedOldValues) > 0){
+                    _14ProductoStockHistorico::insert([
+                        'psh_old_values'                        => json_encode($groupedOldValues),
+                        'psh_new_values'                        => json_encode($groupedNewValues),
+                        'psh_tipo'                              => 12,
+                        'id_codigoslibros_devolucion_desarmados_header'    => $id_devolucion,
+                        'user_created'                          => $id_usuario,
+                        'created_at'                            => now(),
+                        'updated_at'                            => now(),
+                    ]);
+                }
+                //=======================================================================================
             }
             DB::commit();
             return [
@@ -2035,7 +2069,7 @@ class CodigoLibrosController extends Controller
                     }
                 }
                 //si cambiados es mayor a cero actualizar el estado de la devolucion
-                if($porcentaje > 0){
+                if($porcentaje > 0 && $contadorNoCambiado == 0 && $contadorNoexiste == 0){
                     //actualizar total venta
                     //hijos
                     $totalValor    = 0;
@@ -2095,8 +2129,8 @@ class CodigoLibrosController extends Controller
                     ];
                     // notificacion en pusher
                     $this->NotificacionRepository->notificacionVerificaciones($channel, $event, $data);
+                    DB::commit();
                 }
-                DB::commit();
                 return [
                     "cambiados"             => $porcentaje,
                     "codigosNoCambiados"    => $codigosNoCambiados,
@@ -2433,39 +2467,18 @@ class CodigoLibrosController extends Controller
             ], 200);
         }
     }
-/**
- * Agrupa arrayOldValues por pro_codigo, tomando el último valor de cada campo
- * @param array $arrayOldValues
- * @return array
- */
-private function agruparPorCodigo($arrayOldValues) {
-    $grouped = [];
+    /**
+     * Agrupa arrayOldValues por pro_codigo, tomando el último valor de cada campo
+     * @param array $arrayOldValues
+     * @return array
+     */
+    private function agruparPorCodigo($arrayOldValues) {
+        $grouped = [];
 
-    foreach ($arrayOldValues as $item) {
-        $codigo = $item['pro_codigo'];
+        foreach ($arrayOldValues as $item) {
+            $codigo = $item['pro_codigo'];
 
-        // Reemplazamos el registro completo con el último valor para este pro_codigo
-        $grouped[$codigo] = [
-            'pro_codigo' => $codigo,
-            'pro_reservar' => $item['pro_reservar'],
-            'pro_stock' => $item['pro_stock'],
-            'pro_stockCalmed' => $item['pro_stockCalmed'],
-            'pro_deposito' => $item['pro_deposito'],
-            'pro_depositoCalmed' => $item['pro_depositoCalmed']
-        ];
-    }
-
-    // Convertimos el array asociativo a un array indexado
-    return array_values($grouped);
-}
-private function agruparPorCodigoPrimerValor($arrayOldValues) {
-    $grouped = [];
-
-    foreach ($arrayOldValues as $item) {
-        $codigo = $item['pro_codigo'];
-
-        // Solo asignamos el registro si no existe ya para este pro_codigo
-        if (!isset($grouped[$codigo])) {
+            // Reemplazamos el registro completo con el último valor para este pro_codigo
             $grouped[$codigo] = [
                 'pro_codigo' => $codigo,
                 'pro_reservar' => $item['pro_reservar'],
@@ -2475,11 +2488,32 @@ private function agruparPorCodigoPrimerValor($arrayOldValues) {
                 'pro_depositoCalmed' => $item['pro_depositoCalmed']
             ];
         }
-    }
 
-    // Convertimos el array asociativo a un array indexado
-    return array_values($grouped);
-}
+        // Convertimos el array asociativo a un array indexado
+        return array_values($grouped);
+    }
+    private function agruparPorCodigoPrimerValor($arrayOldValues) {
+        $grouped = [];
+
+        foreach ($arrayOldValues as $item) {
+            $codigo = $item['pro_codigo'];
+
+            // Solo asignamos el registro si no existe ya para este pro_codigo
+            if (!isset($grouped[$codigo])) {
+                $grouped[$codigo] = [
+                    'pro_codigo' => $codigo,
+                    'pro_reservar' => $item['pro_reservar'],
+                    'pro_stock' => $item['pro_stock'],
+                    'pro_stockCalmed' => $item['pro_stockCalmed'],
+                    'pro_deposito' => $item['pro_deposito'],
+                    'pro_depositoCalmed' => $item['pro_depositoCalmed']
+                ];
+            }
+        }
+
+        // Convertimos el array asociativo a un array indexado
+        return array_values($grouped);
+    }
 
     //api:post/codigos/devolucionCrearDocumentos
     public function devolucionCrearDocumentos(Request $request){
@@ -2956,7 +2990,7 @@ private function agruparPorCodigoPrimerValor($arrayOldValues) {
                                     "estado"             => $getcodigoPrimero[0]->estado,
                                     "plus"               => $getcodigoPrimero[0]->plus,
                                     "precio"             => $item->precio,
-                                    "combo"              => $getcodigoPrimero[0]->codigo_combo,
+                                    "combo"              => $getcodigoPrimero[0]->combo,
                                     "codigo_combo"       => $getcodigoPrimero[0]->codigo_combo,
                                     'codigo_proforma'    => $getcodigoPrimero[0]->codigo_proforma,
                                     'proforma_empresa'   => $getcodigoPrimero[0]->proforma_empresa,
@@ -3895,11 +3929,11 @@ private function agruparPorCodigoPrimerValor($arrayOldValues) {
         if($request->getCombos)                                 { return $this->codigosRepository->getCombos(); }
         if($request->getReporteLibrosAsesores)                  { return $this->getReporteLibrosAsesores($request); }
         if($request->getReporteLibrosAsesores_new)              { return $this->getReporteLibrosAsesores_new($request); }
-        if($request->getReporteLibrosXAsesor)                   { return $this->getReporteLibrosXAsesor($request); }
         if($request->getCodigosIndividuales)                    { return $this->getCodigosIndividuales($request); }
         if($request->getReporteXTipoVenta)                      { return $this->getReporteXTipoVenta($request); }
         if($request->getReporteCombosDespachados)               { return $this->getReporteCombosDespachados($request); }
         if($request->getReporteCombosDespachadosXCombo)         { return $this->getReporteCombosDespachadosXCombo($request); }
+        if($request->getReporteCombosDespachadosSoloCombos)     { return $this->getReporteCombosDespachadosSoloCombos($request); }
         if($request->getReporteCodigosRegaladosXSerie)          { return $this->getReporteCodigosRegaladosXSerie($request); }
         if($request->getReporteCodigosRegaladosXSerieCodigos)   { return $this->getReporteCodigosRegaladosXSerieCodigos($request); }
         if($request->getReporteCodigosTodosXSerie)              { return $this->getReporteCodigosTodosXSerie($request); }
@@ -4321,42 +4355,6 @@ private function agruparPorCodigoPrimerValor($arrayOldValues) {
         }
         return $val_pedido2;
     }
-    //api:get/metodosGetCodigos?getReporteLibrosXAsesor=1&periodo=25&id_asesor=4179
-    public function getReporteLibrosXAsesor($request){
-        $periodo                        = $request->periodo;
-        $id_asesor                      = $request->id_asesor;
-        $guias                          = $this->codigosRepository->getLibrosAsesores($periodo, $id_asesor);
-        $resultado                      = [];
-        $guiasPedidos                   = collect($guias);
-        $GuiasBodega                    = collect($this->codigosRepository->getCodigosBodega(1, $periodo, 0, $id_asesor));
-        if ($guiasPedidos->isEmpty())   { $resultado = $GuiasBodega;}
-        else {
-            if ($GuiasBodega->isEmpty()){ $resultado = $guiasPedidos; }
-            else {
-               $GuiasBodega->map(function($item) use ($guiasPedidos){
-                $codigo     = $item->codigo;
-                $existing   = $guiasPedidos->firstWhere('codigo', $codigo);
-                if ($existing) {
-                    $existing->valor += $item->valor;
-                } else {
-                    $guiasPedidos->push($item);
-                }
-               });
-               $resultado = $guiasPedidos;
-            }
-        }
-        foreach ($resultado as $key => $item) {
-            // Obtener cantidad devuelta
-            $getCantidadDevuelta = $this->tr_cantidadDevuelta($id_asesor, $resultado[$key]->codigo, $periodo);
-            if($getCantidadDevuelta > 0) {
-                $resultado[$key]->cantidad_devuelta = (int) $getCantidadDevuelta;
-            } else {
-                $resultado[$key]->cantidad_devuelta = 0;
-            }
-            $resultado[$key]->stockAsesor = $resultado[$key]->valor - $resultado[$key]->cantidad_devuelta;
-        }
-        return $resultado;
-    }
     //api:get/metodosGetCodigos?getCodigosIndividuales=1&periodo=25
     public function getCodigosIndividuales($request) {
         $activos        = $request->input('activos');
@@ -4669,6 +4667,7 @@ private function agruparPorCodigoPrimerValor($arrayOldValues) {
             AND c.estado_liquidacion IN ('0','1','2')
             AND c.codigo_combo IS NOT NULL
             AND c.combo IS NOT NULL
+            AND c.codigo_proforma IS NOT NULL
             $condicion
         ", [$periodo]);
 
@@ -4767,6 +4766,129 @@ private function agruparPorCodigoPrimerValor($arrayOldValues) {
         return $result;
     }
 
+    //api:get/metodosGetCodigos?getReporteCombosDespachadosSoloCombos=1&periodo=27
+    public function getReporteCombosDespachadosSoloCombos($request)
+    {
+        $periodo = $request->periodo;
+        $setTipoVenta = [1, 2]; // VENTA DIRECTA Y LISTA
+        $tipoInstitucionIncluir = $request->tipoInstitucionIncluir;
+
+        // Si el periodo es menor o igual al configurado -> usa pedidos viejos
+        $nuevo = ($periodo <= $this->tr_periodoPedido) ? 0 : 1;
+
+        // Obtener combos base
+        $combos = $this->codigosRepository->reporteCombosDinamica($periodo, $tipoInstitucionIncluir);
+        return $combos;
+        // Condición dinámica para instituciones
+        $condicion = "";
+        if (!empty($tipoInstitucionIncluir)) {
+            $condicion = "AND (
+                (c.venta_estado = 2 AND il.tipo_institucion IN ($tipoInstitucionIncluir))
+                OR (c.venta_estado = 1 AND iv.tipo_institucion IN ($tipoInstitucionIncluir))
+            )";
+        }
+
+        // Despachos desde codigoslibros
+        $codigosDespachos = DB::select("
+            SELECT c.codigo, c.codigo_combo, c.combo
+            FROM codigoslibros c
+            LEFT JOIN institucion il ON il.idInstitucion = c.venta_lista_institucion
+            LEFT JOIN institucion iv ON iv.idInstitucion = c.bc_institucion
+            WHERE c.bc_periodo = ?
+            AND c.prueba_diagnostica = '0'
+            AND c.estado_liquidacion IN ('0','1','2')
+            AND c.codigo_combo IS NOT NULL
+            AND c.combo IS NOT NULL
+            AND c.codigo_proforma IS NOT NULL
+            $condicion
+        ", [$periodo]);
+
+        $arrayPedidos = [];
+        $arrayDocumentosVenta = [];
+
+        // =========================
+        // 🔹 Función para asignar pedidos/docVenta a cada combo
+        // =========================
+        $addToBooks = function ($source, $field) use (&$combos) {
+            foreach ($combos as &$combo) { // referencia para modificar el objeto
+                $sum = collect($source)
+                    ->where('codigo_liquidacion', $combo->codigo_liquidacion)
+                    ->sum('valor'); // 👈 aseguramos sumar la columna "valor"
+                $combo->{$field} = $sum;
+            }
+        };
+
+        // Agregar pedidos y documentos de venta a combos y precio
+        $addToBooks($arrayPedidos, 'pedido');
+        $addToBooks($arrayDocumentosVenta, 'documentoVenta');
+        $result = [];
+
+        // =========================
+        // 🔹 Armar resultado final
+        // =========================
+        foreach ($combos as $combo) {
+            $agrupado = collect($codigosDespachos)
+                ->where('combo', $combo->codigo_liquidacion)
+                ->groupBy('combo')
+                ->map(function ($items) {
+                    $etiquetas = collect($items)
+                        ->groupBy('codigo_combo')
+                        ->map(function ($etqs, $codigo_combo) {
+                            return [
+                                'codigo_combo' => $codigo_combo,
+                                'cantidad' => count($etqs), // despacho bodega por código_combo
+                            ];
+                        })->values();
+                    return ['etiquetas' => $etiquetas];
+                })->first();
+
+            // Agregar datos calculados
+            $combo->despachoBodega = $agrupado
+                ? collect($agrupado['etiquetas'])->sum('cantidad')
+                : 0;
+
+            $combo->agrupado = $agrupado ? $agrupado['etiquetas'] : [];
+
+            // Si no existen pedidos/docVenta en este combo, poner 0
+            $combo->pedido = $combo->pedido ?? 0;
+            $combo->documentoVenta = $combo->documentoVenta ?? 0;
+            // $combo->precio = $combo->precio ?? 0;
+
+            // Pasamos a array para el resultado
+            $result[] = (array) $combo;
+        }
+
+        // =========================
+        // 🔹 Verificación de errores en combos
+        // =========================
+        $result = collect($result)
+            ->map(function ($item) {
+                $error = false;
+                foreach ($item['agrupado'] as $combo) {
+                    if ($combo['cantidad'] != $item['codigosPorCombo']) {
+                        $error = true;
+                        break;
+                    }
+                }
+                $item['ifErrorCombo'] = $error ? 1 : 0;
+                return $item;
+            })
+            ->groupBy('nombrelibro')
+            ->sortKeys()
+            ->flatten(1)
+            ->values()
+            ->toArray();
+        // multiplicar precio * cantidad y colocar propiedad totalDespachadoBodegaCombo y 2 decimales
+        foreach ($result as &$item) {
+            // Mantener como float con 2 decimales
+            $item['totalDespachadoBodegaCombo'] = round($item['precio'] * $item['cantidad'], 2);
+
+            // cantidad como float
+            $item['cantidad_despachadaCombo'] = (float) $item['cantidad'];
+        }
+
+        return $result;
+    }
 
     //api:get/metodosGetCodigos?getReporteCombosDespachadosXCombo=1&periodo=27&combo=CCMDH1
     public function getReporteCombosDespachadosXCombo($request){

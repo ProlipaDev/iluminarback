@@ -5,7 +5,9 @@ namespace App\Http\Controllers;
 use App\Http\Controllers\Controller;
 use App\Models\_14Producto;
 use App\Models\_14ProductoStockHistorico;
+use App\Models\CodigosLibros;
 use App\Models\f_tipo_documento;
+use App\Models\LibroSerie;
 use Illuminate\Http\Request;
 use DB;
 use App\Models\PedidoGuiaDevolucion;
@@ -16,7 +18,9 @@ use App\Models\Pedidos;
 use App\Models\Pedidos_val_area_new;
 use App\Models\PedidosGuiasBodega;
 use App\Models\PedidoValArea;
+use App\Repositories\Codigos\CodigosRepository;
 use App\Repositories\pedidos\GuiaRepository;
+use App\Traits\Codigos\TraitCodigosGeneral;
 use App\Traits\Pedidos\TraitGuiasGeneral;
 use App\Traits\Pedidos\TraitPedidosGeneral;
 use Illuminate\Support\Facades\Http;
@@ -29,10 +33,13 @@ class GuiasController extends Controller
      */
     use TraitGuiasGeneral;
     use TraitPedidosGeneral;
+    use TraitCodigosGeneral;
     protected $guiaRepository;
-    public function __construct(GuiaRepository $guiaRepository)
+    protected $codigoRepository;
+    public function __construct(GuiaRepository $guiaRepository, CodigosRepository $codigoRepository)
     {
         $this->guiaRepository = $guiaRepository;
+        $this->codigoRepository = $codigoRepository;
     }
     //API:get/guias
     public function index(Request $request)
@@ -225,7 +232,7 @@ class GuiasController extends Controller
         $query = DB::SELECT("SELECT pd.*,
         CONCAT(u.nombres,' ',u.apellidos) as asesor,
         (
-            SELECT SUM(pg.cantidad_devuelta) AS cantidad
+            SELECT SUM(pg.cantidad_devuelta + pg.cantidad_devuelta_codigoslibros) AS cantidad
             FROM pedidos_guias_devolucion_detalle  pg
             WHERE pg.pedidos_guias_devolucion_id = pd.id
 
@@ -239,17 +246,16 @@ class GuiasController extends Controller
         return $query;
     }
     public function getDetalle($id){
-        $query = DB::SELECT("SELECT  pg.* , l.nombrelibro
+        $query = DB::SELECT("SELECT  pg.* , pr.pro_nombre as nombrelibro
         FROM pedidos_guias_devolucion_detalle pg
-        LEFT JOIN libros_series ls ON pg.pro_codigo = ls.codigo_liquidacion
-        LEFT JOIN libro l ON ls.idLibro = l.idlibro
+        LEFT JOIN 1_4_cal_producto pr ON pg.pro_codigo = pr.pro_codigo
         WHERE pg.pedidos_guias_devolucion_id = '$id'
-        ORDER BY l.nombrelibro
+        ORDER BY pr.pro_nombre
         ");
         return $query;
     }
-     //api:post//guardarDevolucionBDMilton
-     public function guardarDevolucionBDMilton(Request $request){
+    //api:post//guardarDevolucionBDMilton
+    public function guardarDevolucionBDMilton(Request $request){
         set_time_limit(6000000);
         ini_set('max_execution_time', 6000000);
         try {
@@ -260,17 +266,17 @@ class GuiasController extends Controller
             $iniciales                      = $request->iniciales;
             $fechaActual                    = date("Y-m-d H:i:s");
             $empresa_id                     = $request->empresa_id;
+            $periodo_id                     = $request->periodo_id;
+            $user_created                   = $request->user_created;
             $secuencia                      = 0;
             //obtener el id de la institucion de facturacion
-            $query = DB::SELECT("SELECT * FROM pedidos_secuencia s
-            WHERE s.id_periodo = '$request->id_periodo'
-            AND s.ven_d_codigo = '$request->iniciales'
-            -- AND s.institucion_facturacion = '22926'
+            $query = DB::SELECT("SELECT * FROM usuario s
+            WHERE s.iniciales = '$request->iniciales'
             ");
             if(empty($query)){
-                return ["status" => "0", "message" => "No esta configurado el id de institucion de prolipa de facturacion"];
+                return ["status" => "0", "message" => "No esta configurado las iniciales del asesor"];
             }
-            $asesor_id                      = $query[0]->asesor_id;
+            $asesor_id                      = $query[0]->idusuario;
             $letra                          = "";
             //get secuencia
             $getSecuencia                   = f_tipo_documento::obtenerSecuencia("DEVOLUCION-GUIA");
@@ -288,16 +294,13 @@ class GuiasController extends Controller
             //================SAVE PEDIDO======================
             //================SAVE DETALLE DE LAS GUIAS======================
             //obtener las guias por libros
-            $detalleGuias = $this->getDetalle($request->id_pedido);
+            $detalleGuias = $this->getDetalle($id_pedido);
             //Si no hay nada en detalle de venta
             if(empty($detalleGuias)){ return ["status" => "0", "message" => "No hay ningun libro para el detalle de las guias a devolver"];}
             //===ACTUALIZAR STOCK========
-            $resultado = $this->actualizarStockFacturacion($detalleGuias,$codigo_ven,$empresa_id,$asesor_id);
-            if(isset($resultado["status"])) {
-                $estatus = $resultado["status"];  if($estatus == "0") { return $resultado; }
-            }
+            $this->actualizarStockFacturacionDevolucion($detalleGuias,$codigo_ven,$empresa_id,$asesor_id,$periodo_id,$user_created,$id_pedido);
             //ACTUALIZAR VEN CODIGO - FECHA APROBACION-
-            $query = "UPDATE `pedidos_guias_devolucion` SET `ven_codigo` = '$codigo_ven', `fecha_aprobacion` = '$fechaActual', `estado` = '1', `empresa_id` = '$empresa_id' WHERE `id` = $id_pedido;";
+            $query = "UPDATE `pedidos_guias_devolucion` SET `ven_codigo` = '$codigo_ven', `fecha_aprobacion` = '$fechaActual', `estado` = '1', `empresa_id` = '$empresa_id', `user_devuelve` = '$user_created' WHERE `id` = $id_pedido;";
             DB::UPDATE($query);
             //ACTUALIZAR LA SECUENCIA
             f_tipo_documento::updateSecuencia("DEVOLUCION-GUIA",$empresa_id,$secuencia);
@@ -312,46 +315,234 @@ class GuiasController extends Controller
 
     }
     //actualizar stock
-    public function actualizarStockFacturacion($arregloCodigos,$codigo_ven,$empresa_id,$asesor_id){
-        foreach($arregloCodigos as $key => $item){
-            $stockEmpresa                       = 0;
-            $stockAnteriorReserva               = 0;
-            $codigo                             = $item->pro_codigo;
-            $codigoFact                         = "G".$codigo;
-            $producto                           = _14Producto::obtenerProducto($codigoFact);
-            $stockAnteriorReserva               = $producto->pro_reservar;
-            //prolipa
-            if($empresa_id == 1)                { $stockEmpresa  = $producto->pro_stock; }
-            //calmed
-            if($empresa_id == 3)                { $stockEmpresa  = $producto->pro_stockCalmed; }
-            //get stock
-            $valorNew                           = $item->cantidad_devuelta;
-            $nuevoStockReserva                  = $stockAnteriorReserva + $valorNew;
-            $nuevoStockEmpresa                  = $stockEmpresa + $valorNew;
-            //actualizar stock en la tabla de productos
-            _14Producto::updateStock($codigoFact,$empresa_id,$nuevoStockReserva,$nuevoStockEmpresa);
-            //actualizar stock interno
-            $productoInterno                    = PedidosGuiasBodega::obtenerProducto($codigo,$asesor_id);
-            $cantidadInterna                    = $productoInterno->pro_stock - $valorNew;
-            DB::table('pedidos_guias_bodega')
-            ->where('pro_codigo', $codigo)
-            ->where('asesor_id', $asesor_id)
-            ->update(['pro_stock' => $cantidadInterna]);
-            //save Historico
-            $historico = new PedidoHistoricoActas();
-            $historico->cantidad                = $valorNew;
-            $historico->ven_codigo              = $codigo_ven;
-            $historico->pro_codigo              = $codigo;
-            $historico->stock_anterior          = $stockAnteriorReserva;
-            $historico->nuevo_stock             = $nuevoStockReserva;
-            $historico->stock_anterior_empresa  = $stockEmpresa;
-            $historico->nuevo_stock_empresa     = $nuevoStockEmpresa;
-            //tipo = 0  solicitud; 1 = devolucion;
-            $historico->tipo            = 1;
-            $historico->save();
-        }
-        return $codigo_ven;
+    public function actualizarStockFacturacionDevolucion(
+        $arregloCodigos,
+        $codigo_ven,
+        $empresa_id,
+        $asesor_id,
+        $periodo_id,
+        $user_created,
+        $id_pedido
+    )
+    {
+        $arrayOldValuesStock = [];
+        $arrayNewValuesStock = [];
+        foreach ($arregloCodigos as $item) {
+            // Datos iniciales
+            $codigoFact = $item->pro_codigo;
+            $producto   = _14Producto::obtenerProducto($codigoFact);
+
+            if (!$producto) {
+                throw new \Exception("Producto no encontrado para código: " . $codigoFact);
+            }
+
+            // Stock reserva antes
+            $stockAnteriorReserva = $producto->pro_reservar;
+
+            // Stock por empresa
+            if ($empresa_id == 1) {
+                $stockEmpresa = $producto->pro_stock;
+            } elseif ($empresa_id == 3) {
+                $stockEmpresa = $producto->pro_stockCalmed;
+            } else {
+                $stockEmpresa = 0;
+            }
+
+            // Cálculo total devuelto
+            $valorNew = $item->cantidad_devuelta + $item->cantidad_devuelta_codigoslibros;
+            $cantidad_devuelta_codigoslibros = $item->cantidad_devuelta_codigoslibros;
+
+            /**
+             * --------------------------------------------
+             *  PROCESAMIENTO DE GUIAS codigoslibros
+             * --------------------------------------------
+             */
+            if ($cantidad_devuelta_codigoslibros > 0) {
+                // Código sin la "G"
+                $getCodigoLibro = substr($item->pro_codigo, 1);
+
+                $getDatoLibro = LibroSerie::where('codigo_liquidacion', $getCodigoLibro)->first();
+
+                if (!$getDatoLibro) {
+                    throw new \Exception(
+                        "No se encontró libro con código de liquidación: " . $getCodigoLibro
+                    );
+                }
+
+                $idLibro = $getDatoLibro->idLibro;
+                // return $idLibro;
+                // Obtener códigos que el asesor tiene asignados
+                $getCodigoslibros = DB::select("
+                    SELECT * FROM codigoslibros c
+                    WHERE c.estado_liquidacion = '4'
+                    AND c.prueba_diagnostica = '0'
+                    AND c.asesor_id = ?
+                    AND c.bc_periodo = ?
+                    AND c.libro_idlibro = ?
+                    LIMIT $cantidad_devuelta_codigoslibros
+                ", [
+                    $asesor_id,
+                    $periodo_id,
+                    $idLibro
+                ]);
+
+                if (count($getCodigoslibros) != $cantidad_devuelta_codigoslibros) {
+                    throw new \Exception(
+                        "La cantidad de guías no coincide con lo que se debe devolver para el código: " .
+                        $getCodigoLibro
+                    );
+                }
+
+                /**
+                 * --------------------------------------------
+                 *  ACTUALIZAR CODIGOS A ESTADO NORMAL
+                 * --------------------------------------------
+                 */
+                foreach ($getCodigoslibros as $itemCodigo) {
+
+                    $comentario = "Devolución de guías por parte del asesor";
+
+                    // Obtener registro
+                    $codigo = CodigosLibros::find($itemCodigo->codigo);
+                    if (!$codigo) {
+                        throw new \Exception("Código no encontrado: " . $itemCodigo->codigo);
+                    }
+
+                    $old_valuesCodigo = json_encode($codigo->getAttributes());
+
+                    // Limpieza del código
+                    DB::table('codigoslibros')
+                        ->where('codigo', $itemCodigo->codigo)
+                        ->update([
+                            'estado_liquidacion'      => '1',
+                            'asesor_id'               => null,
+                            'bc_periodo'              => null,
+                            'bc_institucion'          => null,
+                            'venta_lista_institucion' => null,
+                            'codigo_paquete'          => null,
+                            'combo'                   => null,
+                            'codigo_combo'            => null,
+                            'codigo_proforma'         => null,
+                            'proforma_empresa'        => null,
+                            'plus'                    => 0,
+                            'factura'                 => null,
+                            'bc_estado'               => '1',
+                            'venta_estado'            => '0',
+                        ]);
+
+                    // Guardar histórico
+                    $this->GuardarEnHistorico(
+                        0,
+                        0,
+                        $periodo_id,
+                        $itemCodigo->codigo,
+                        $user_created,
+                        $comentario,
+                        $old_valuesCodigo,
+                        json_encode($codigo->fresh()->getAttributes()),
+                        null,
+                        null
+                    );
+
+                    /**
+                     * --------------------------------------------
+                     *  SI EL CODIGO TIENE UNION, ACTUALIZAR TODOS
+                     * --------------------------------------------
+                     */
+                    $codigo_union = $codigo->codigo_union;
+
+                    if ($codigo_union) {
+
+                        $cu = CodigosLibros::where('codigo', $codigo_union)->first();
+
+                        if ($cu) {
+
+                            $old_values = json_encode($cu->getAttributes());
+
+                            DB::table('codigoslibros')
+                                ->where('codigo', $cu->codigo)
+                                ->update([
+                                    'estado_liquidacion'      => '1',
+                                    'asesor_id'               => null,
+                                    'bc_periodo'              => null,
+                                    'bc_institucion'          => null,
+                                    'venta_lista_institucion' => null,
+                                    'codigo_paquete'          => null,
+                                    'combo'                   => null,
+                                    'codigo_combo'            => null,
+                                    'codigo_proforma'         => null,
+                                    'proforma_empresa'        => null,
+                                    'plus'                    => 0,
+                                    'factura'                 => null,
+                                    'bc_estado'               => '1',
+                                    'venta_estado'            => '0',
+                                ]);
+
+                            $this->GuardarEnHistorico(
+                                0,
+                                0,
+                                $periodo_id,
+                                $cu->codigo,
+                                $user_created,
+                                $comentario,
+                                $old_values,
+                                json_encode($cu->fresh()->getAttributes()),
+                                null,
+                                null
+                            );
+                        }
+                    }
+
+                }
+            }
+            //====== FIN CODIGOSLIBROS
+            /**
+             * --------------------------------------------
+             *  ACTUALIZAR STOCK
+             * --------------------------------------------
+             */
+            // old values STOCK
+            $oldValuesStock    = $this->codigoRepository->save_historicoStockOld($codigoFact);
+            $nuevoStockReserva = $stockAnteriorReserva + $valorNew;
+            $nuevoStockEmpresa = $stockEmpresa + $valorNew;
+
+            _14Producto::updateStock(
+                $codigoFact,
+                $empresa_id,
+                $nuevoStockReserva,
+                $nuevoStockEmpresa
+            );
+            // new values STOCK
+            $newValuesStock          = $this->codigoRepository->save_historicoStockNew($codigoFact);
+            $arrayOldValuesStock[]   = $oldValuesStock;
+            $arrayNewValuesStock[]   = $newValuesStock;
+        }// end foreach
+        //======================================actualizar historico stock=======================
+            // Agrupar oldValues por pro_codigo, tomando el último valor
+            $groupedOldValues = $this->guiaRepository->agruparPorCodigoPrimerValor($arrayOldValuesStock);
+            $groupedNewValues = $this->guiaRepository->agruparPorCodigo($arrayNewValuesStock);
+            // Historico
+            if(count($groupedOldValues) > 0){
+                _14ProductoStockHistorico::insert([
+                    'psh_old_values'                        => json_encode($groupedOldValues),
+                    'psh_new_values'                        => json_encode($groupedNewValues),
+                    'psh_tipo'                              => 14,
+                    'id_pedidos_guias_devolucion'           => $id_pedido,
+                    'user_created'                          => $user_created,
+                    'created_at'                            => now(),
+                    'updated_at'                            => now(),
+                ]);
+            }
+        //=======================================================================================
+        // Retorno final
+        return ["status" => "1", "message" => "Stock actualizado correctamente", "codigo_ven" => $codigo_ven];
     }
+
+        /**
+     * Agrupa arrayOldValues por pro_codigo, tomando el último valor de cada campo
+     * @param array $arrayOldValues
+     * @return array
+     */
 
     /**
      * Show the form for creating a new resource.
@@ -451,7 +642,7 @@ class GuiasController extends Controller
             );
 
             // Actualizar stock
-            $resultado = $this->guiaRepository->actualizarStockFacturacion($guias_send, $codigo_ven, $request->empresa_id, 1, $request->id_pedido);
+            $resultado = $this->guiaRepository->actualizarStockFacturacion($guias_send, $codigo_ven, $request->empresa_id, 1, $request->id_pedido, $request->usuario_fact);
             if (isset($resultado["status"]) && $resultado["status"] == "0") {
                 throw new \Exception($resultado["message"]);
             }
@@ -575,41 +766,94 @@ class GuiasController extends Controller
     }
 
     //api:post/saveDevolucionGuiasBodega
-    public function saveDevolucionGuiasBodega(Request $request){
+   public function saveDevolucionGuiasBodega(Request $request)
+    {
         set_time_limit(6000000);
         ini_set('max_execution_time', 6000000);
-        $detalles   = json_decode($request->data_detalle);
-        $asesor_id  = $request->asesor_id;
-        $periodo_id = $request->periodo_id;
-        if($request->id == 0){
-            //save devolucion
-            $devolucion = new PedidoGuiaDevolucion();
-            $devolucion->periodo_id      = $request->periodo_id;
-            $devolucion->asesor_id       = $asesor_id;
-            $devolucion->save();
-        }else{
-            $devolucion = PedidoGuiaDevolucion::findOrFail($request->id);
-            //validar que el pedido devolucion este abierto
-            if($devolucion->estado != 0){
-                return ["status" => "0", "message" => "La solicitud de la devolucion no se encuentra activa"];
+
+        DB::beginTransaction(); // 🚀 INICIO TRANSACCIÓN
+
+        try {
+
+            $detalles   = json_decode($request->data_detalle);
+            $asesor_id  = $request->asesor_id;
+            $periodo_id = $request->periodo_id;
+
+            if ($request->id == 0) {
+
+                // Crear nueva devolución
+                $devolucion = new PedidoGuiaDevolucion();
+                $devolucion->periodo_id = $periodo_id;
+                $devolucion->asesor_id  = $asesor_id;
+                $devolucion->save();
+
+            } else {
+
+                // Buscar devolución existente
+                $devolucion = PedidoGuiaDevolucion::findOrFail($request->id);
+
+                // Validar estado
+                if ($devolucion->estado != 0) {
+                    DB::rollBack();
+                    return [
+                        "status"  => "0",
+                        "message" => "La solicitud de la devolución no se encuentra activa"
+                    ];
+                }
             }
-        }
-        foreach($detalles as $key => $item){
-            $codigo     = $item->pro_codigo;
-            $cantidad   = $item->formato;
-            //GUARDAR DETALLE DE ENTREGA
-            $this->saveDevolucionDetalle($item,$devolucion,$asesor_id,$periodo_id);
-            //GUARDAR EL STOCK EN BODEGA DE PROLIPA
-            //tipo  0 = suma; 1 = dismunuir stock
-            //$this->saveStockBodegaProlipa($tipo,$asesor_id,$codigo,$cantidad);
-        }
-        if($devolucion){
-            return ["status" => "1", "message" => "Se guardo correctamente"];
-        }else{
-            return ["status" => "0", "message" => "No se pudo guardar"];
+
+            // Eliminar detalles anteriores
+            DB::delete("
+                DELETE FROM pedidos_guias_devolucion_detalle
+                WHERE pedidos_guias_devolucion_id = ?
+                AND asesor_id = ?
+                AND periodo_id = ?
+            ", [ $devolucion->id, $asesor_id, $periodo_id ]);
+
+            // Reajustar el autoincremento
+            $ultimoId = PedidoGuiaDevolucionDetalle::max('id') + 1;
+            DB::statement('ALTER TABLE pedidos_guias_devolucion_detalle AUTO_INCREMENT = ' . $ultimoId);
+
+            // Guardar detalles nuevos
+            foreach ($detalles as $item) {
+                 $this->saveDevolucionDetalle($item, $devolucion, $asesor_id, $periodo_id);
+            }
+
+            // Todo ok → guardar
+            DB::commit();
+
+            return [
+                "status"  => "1",
+                "message" => "Se guardó correctamente"
+            ];
+
+        } catch (\Exception $e) {
+
+            DB::rollBack(); // ❌ ERROR → revertir todo
+
+            return [
+                "status"  => "0",
+                "message" => "Error al guardar la devolución",
+                "error"   => $e->getMessage() // opcional, para debug
+            ];
         }
     }
+
     public function saveDevolucionDetalle($tr,$devolucion,$asesor_id,$periodo_id){
+        $cantidadDisponiblePedido = $tr->cantidadDisponiblePedido;
+        $cantidadDisponiblePedido;
+        $formato                  = $tr->formato;
+        $residuo                  = 0;
+        $cantidad_devuelta_codigoslibros = 0;
+        if($formato > $cantidadDisponiblePedido){
+            $residuo = $formato - $cantidadDisponiblePedido;
+        }
+        // el residuo se lo resta a la bodega
+        if($residuo > 0){
+            $cantidad_devuelta_codigoslibros = $residuo;
+            $formato              = $formato - $residuo;
+        }
+        // validar la cantidad
         //validar que el libro ya haya sido devuelto
         $validate = DB::SELECT("SELECT * FROM  pedidos_guias_devolucion_detalle
         WHERE pro_codigo = '$tr->pro_codigo'
@@ -624,11 +868,12 @@ class GuiasController extends Controller
         }else{
             $detalle = new PedidoGuiaDevolucionDetalle();
         }
-        $detalle->pro_codigo                   = $tr->pro_codigo;
-        $detalle->cantidad_devuelta            = $tr->formato;
-        $detalle->pedidos_guias_devolucion_id  = $devolucion->id;
-        $detalle->asesor_id                    = $asesor_id;
-        $detalle->periodo_id                   = $periodo_id;
+        $detalle->pro_codigo                        = $tr->pro_codigo;
+        $detalle->cantidad_devuelta                 = $formato;
+        $detalle->cantidad_devuelta_codigoslibros   = $cantidad_devuelta_codigoslibros;
+        $detalle->pedidos_guias_devolucion_id       = $devolucion->id;
+        $detalle->asesor_id                         = $asesor_id;
+        $detalle->periodo_id                        = $periodo_id;
         $detalle->save();
     }
     //api:post/eliminarDevolucionGuias
@@ -646,9 +891,9 @@ class GuiasController extends Controller
     public function show($id)
     {
         $Devolucion = PedidoGuiaDevolucion::findOrFail($id);
-        $detalleDevolucion = DB::SELECT("SELECT d.*, ls.nombre AS nombrelibro
+        $detalleDevolucion = DB::SELECT("SELECT d.*, ls.pro_nombre AS nombrelibro
         FROM pedidos_guias_devolucion_detalle d
-        LEFT JOIN libros_series ls ON ls.codigo_liquidacion = d.pro_codigo
+        LEFT JOIN 1_4_cal_producto ls ON ls.pro_codigo = d.pro_codigo
         WHERE d.pedidos_guias_devolucion_id = '$id'
         ");
         $Devolucion->detalleDevolucion = $detalleDevolucion;

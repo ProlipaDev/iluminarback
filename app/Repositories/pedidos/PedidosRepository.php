@@ -664,7 +664,7 @@ class  PedidosRepository extends BaseRepository
             FROM pedidos_val_area_new pp
             LEFT JOIN pedidos p ON p.id_pedido = pp.id_pedido
             LEFT JOIN pedidos_formato_new fp ON fp.idlibro = pp.idlibro AND fp.idperiodoescolar = '$periodo'
-            LEFT JOIN libro l ON l.idlibro = pp.id_libro
+            LEFT JOIN libro l ON l.idlibro = pp.idlibro
             LEFT JOIN libros_series ls ON ls.idLibro = l.idlibro
             LEFT JOIN series s ON s.id_serie = ls.id_serie
             WHERE p.contrato_generado IS NOT NULL
@@ -717,7 +717,7 @@ class  PedidosRepository extends BaseRepository
             INNER JOIN pedidos_alcance a ON a.id = pp.pvn_tipo
             LEFT JOIN pedidos p ON p.id_pedido = pp.id_pedido
             LEFT JOIN pedidos_formato_new fp ON fp.idlibro = pp.idlibro AND fp.idperiodoescolar = '$periodo'
-            LEFT JOIN libro l ON l.idlibro = pp.id_libro
+            LEFT JOIN libro l ON l.idlibro = pp.idlibro
             LEFT JOIN libros_series ls ON ls.idLibro = l.idlibro
             LEFT JOIN series s ON s.id_serie = ls.id_serie
             WHERE p.contrato_generado IS NOT NULL

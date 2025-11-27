@@ -6,6 +6,7 @@
     <title>Descargar Reportes del Sistema</title>
     <!-- NOTA: Esta vista está protegida con middleware AdminAccess (solo usuarios con idgroup=0) -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <style>
         .container {
             max-width: 700px;
@@ -60,11 +61,11 @@
                                 </label>
                                 <select class="form-select" id="tipo_reporte" name="tipo_reporte" required onchange="actualizarPeriodos()">
                                     <option value="">Seleccione un tipo de reporte...</option>
-                                    <option value="despachados">📦 Códigos Despachados</option>
-                                    <option value="pedidos_alcances">📋 Pedidos + Alcances</option>
-                                    <option value="liquidados">💰 Liquidados</option>
-                                    <option value="devoluciones">↩️ Devoluciones</option>
+                                    <option value="pedidos_alcances">📋 Pedidos</option>
                                     <option value="ventas">🛒 Ventas</option>
+                                    <option value="despachados">📦 Códigos Despachados</option>
+                                    <option value="devoluciones">↩️ Devoluciones</option>
+                                    <option value="liquidados">💰 Liquidados</option>
                                     <option value="facturado">🧾 Facturado</option>
                                 </select>
                                 <small class="text-muted">Si experimenta problemas, use el botón "Probar Conexión" primero</small>
@@ -98,16 +99,10 @@
                                 <button type="submit" class="btn btn-success btn-download" data-format="csv">
                                     📥 Descargar CSV (Recomendado)
                                 </button>
-                                <!-- <button type="button" class="btn btn-primary ms-2 btn-download-excel" onclick="descargarExcel()">
-                                    📊 Descargar Excel
+                                <button type="button" class="mt-2 btn btn-primary ms-2 btn-download-excel" id="btnExcelFacturado" onclick="descargarExcel()" style="display: none;">
+                                    📊 Reporte contabilidad 
                                 </button>
-                                <br><br> -->
-                                <!-- <button type="button" class="btn btn-warning ms-2" onclick="descargarLegacy()">
-                                    🔄 Método Antiguo (Respaldo)
-                                </button>
-                                <button type="button" class="btn btn-info ms-2" onclick="probarProcedimiento()">
-                                    🔧 Probar Conexión
-                                </button> -->
+                                <br><br>
                                 <div class="loading mt-3">
                                     <div class="spinner-border text-success" role="status">
                                         <span class="visually-hidden">Procesando...</span>
@@ -143,6 +138,7 @@
         function actualizarPeriodos() {
             const tipoReporte = document.getElementById('tipo_reporte').value;
             const periodoSelect = document.getElementById('id_periodo');
+            const btnExcelFacturado = document.getElementById('btnExcelFacturado');
             // const warningDiv = document.getElementById('periodo_warning');
             const warningText = document.getElementById('warning_text');
 
@@ -151,6 +147,13 @@
 
             // Si hay un mensaje de error visible, ocultarlo al cambiar el tipo de reporte
             limpiarMensajeError();
+
+            // Mostrar botón de Excel solo para Facturado y Ventas
+            if (tipoReporte === 'facturado' || tipoReporte === 'ventas') {
+                btnExcelFacturado.style.display = 'inline-block';
+            } else {
+                btnExcelFacturado.style.display = 'none';
+            }
 
             if (tipoReporte === 'pedidos_alcances') {
                 // Mostrar warning para pedidos_alcances
@@ -263,12 +266,12 @@
             loadingDiv.style.display = 'block';
             
             const reporteNombre = {
-                'despachados': 'Códigos Despachados',
                 'pedidos_alcances': 'Pedidos + Alcances',
-                'liquidados': 'Liquidados',
-                'devoluciones': 'Devoluciones',
                 'ventas': 'Ventas',
-                'facturado': 'Facturado'
+                'despachados': 'Códigos Despachados',
+                'devoluciones': 'Devoluciones',
+                'facturado': 'Facturado',
+                'liquidados': 'Liquidados'
             };
 
             const formatoTexto = formato === 'excel' ? 'Excel (.xlsx)' : 'CSV';
@@ -295,8 +298,36 @@
                     throw new Error(`Error HTTP: ${response.status} - ${response.statusText}`);
                 }
                 
-                // Verificar si es una respuesta JSON (sin datos o error)
+                // Verificar si es una respuesta JSON
                 const contentType = response.headers.get('content-type');
+                
+                // CASO ESPECIAL: Facturado en Excel retorna JSON para procesarlo en el frontend
+                if (tipoReporte === 'facturado' && formato === 'excel' && contentType && contentType.includes('application/json')) {
+                    return response.json().then(data => {
+                        if (data.status === 1 && data.datos) {
+                            // Generar Excel con XLSX.js
+                            generarExcelFacturado(data.datos, idPeriodo);
+                            return { esExcelGenerado: true };
+                        } else {
+                            throw new Error(data.message || 'Error al obtener datos para Excel');
+                        }
+                    });
+                }
+                
+                // CASO ESPECIAL: Ventas en Excel retorna JSON para procesarlo en el frontend
+                if (tipoReporte === 'ventas' && formato === 'excel' && contentType && contentType.includes('application/json')) {
+                    return response.json().then(data => {
+                        if (data.status === 1 && data.datos) {
+                            // Generar Excel con XLSX.js
+                            generarExcelVentas(data.datos, idPeriodo);
+                            return { esExcelGenerado: true };
+                        } else {
+                            throw new Error(data.message || 'Error al obtener datos para Excel');
+                        }
+                    });
+                }
+                
+                // Verificar si es JSON sin datos
                 if (contentType && contentType.includes('application/json')) {
                     return response.json().then(data => {
                         if (data.empty_result) {
@@ -331,7 +362,25 @@
                 // Crear objeto que incluye el blob y el filename
                 return response.blob().then(blob => ({ blob, filename }));
             })
-            .then(({ blob, filename }) => {
+            .then((result) => {
+                // Si es Excel generado en el frontend, ya se descargó
+                if (result.esExcelGenerado) {
+                    loadingText.innerHTML = `✅ Descarga completada exitosamente en formato ${formatoTexto}!<br><small>Revise su carpeta de descargas</small>`;
+                    
+                    // Rehabilitar controles
+                    btnDownload.disabled = false;
+                    if (btnExcel) btnExcel.disabled = false;
+                    selectTipoReporte.disabled = false;
+                    selectPeriodo.disabled = false;
+                    btnDownload.innerHTML = '📥 Descargar CSV (Recomendado)';
+                    if (btnExcel) btnExcel.innerHTML = '📊 Descargar Excel';
+                    loadingDiv.style.display = 'none';
+                    loadingText.innerHTML = 'Generando archivo CSV, por favor espere...';
+                    return;
+                }
+                
+                const { blob, filename } = result;
+                
                 // Crear URL del blob
                 const url = window.URL.createObjectURL(blob);
                 
@@ -472,6 +521,247 @@
             document.body.removeChild(link);
             
             alert('🔄 Descarga iniciada usando método de respaldo.\nSi no funciona, revise la configuración del backend.');
+        }
+
+        // Función para generar Excel de Facturado con XLSX.js (con rowspan)
+        function generarExcelFacturado(datos, idPeriodo) {
+            const wb = XLSX.utils.book_new();
+            const ws = {};
+
+            // ENCABEZADOS - Todas las columnas del stored procedure
+            XLSX.utils.sheet_add_aoa(ws, [
+                ['Contrato', 'Periodo', 'Ciudad', 'ID Inst.', 'Institución', 'Asesor', 'Documento', 
+                 '% Venta', 'Código', 'Nombre Libro', 'Precio', 'Cantidad', 'Tipo', 'Distribuidor', 
+                 'Tipo Inst.', 'Tipo Venta', 'Tipo Producto', 'Fecha Doc.', 'Fecha Envío', 
+                 'Envío Perseo', 'Cliente Perseo', 'RUC Cliente', 'Empresa', 'Facturación Cruzada', 'Desglose Combo']
+            ], { origin: "A1" });
+
+            // DATOS CON ROWSPAN
+            let filas = [];
+            let merges = [];
+            let filaActual = 2; // Fila 2 en Excel (1 es encabezado)
+
+            datos.forEach(row => {
+                // Separar desgloses del combo
+                const codigos = row.Desglose_combo && row.Desglose_combo.trim() 
+                    ? row.Desglose_combo.split(',').map(c => c.trim()).filter(c => c)
+                    : [''];
+
+                const numCodigos = codigos.length;
+                const inicio = filaActual;
+                const fin = inicio + numCodigos - 1;
+
+                // Añadir filas
+                codigos.forEach((codigo, i) => {
+                    filas.push([
+                        i === 0 ? (row.contrato_generado || '') : '',
+                        i === 0 ? (row.periodo || '') : '',
+                        i === 0 ? (row.ciudad_nombre || '') : '',
+                        i === 0 ? (row.id_institucion || '') : '',
+                        i === 0 ? (row.nombreInstitucion || '') : '',
+                        i === 0 ? (row.asesor || '') : '',
+                        i === 0 ? (row.documentoVenta || '') : '',
+                        i === 0 ? (row.porcentaje_venta || 0) : '',
+                        i === 0 ? (row.pro_codigo || '') : '',
+                        i === 0 ? (row.nombre_libro || '') : '',
+                        i === 0 ? (row.precio || 0) : '',
+                        i === 0 ? (row.cantidad || 0) : '',
+                        i === 0 ? (row.tipo || '') : '',
+                        i === 0 ? (row.distribuidor || '') : '',
+                        i === 0 ? (row.tipo_institucion || '') : '',
+                        i === 0 ? (row.tipo_venta || '') : '',
+                        i === 0 ? (row.tipo_producto || '') : '',
+                        i === 0 ? (row.fecha_documento || '') : '',
+                        i === 0 ? (row.fecha_envio || '') : '',
+                        i === 0 ? (row.EnvioPerseo || '') : '',
+                        i === 0 ? (row.ClientePerseo || '') : '',
+                        i === 0 ? (row.RucClientePerseo || '') : '',
+                        i === 0 ? (row.Empresa || '') : '',
+                        i === 0 ? (row.Facturacion_Cruzada || '') : '',
+                        codigo  // SIEMPRE: código del desglose
+                    ]);
+                });
+
+                // MERGES CORRECTOS (Excel usa filas 0-based internamente)
+                if (numCodigos > 1) {
+                    // Fusionar todas las columnas EXCEPTO Desglose_combo (columna 24)
+                    for (let col = 0; col < 24; col++) {
+                        merges.push({ s: { r: inicio - 1, c: col }, e: { r: fin - 1, c: col } });
+                    }
+                }
+
+                filaActual += numCodigos;
+            });
+
+            // AGREGAR FILAS DE DATOS EN A2
+            XLSX.utils.sheet_add_aoa(ws, filas, { origin: "A2" });
+
+            // APLICAR MERGES
+            ws["!merges"] = merges;
+
+            // ANCHOS DE COLUMNA
+            ws["!cols"] = [
+                {wch:12},  // Contrato
+                {wch:12},  // Periodo
+                {wch:15},  // Ciudad
+                {wch:10},  // ID Inst.
+                {wch:35},  // Institución
+                {wch:25},  // Asesor
+                {wch:20},  // Documento
+                {wch:10},  // % Venta
+                {wch:12},  // Código
+                {wch:30},  // Nombre Libro
+                {wch:10},  // Precio
+                {wch:10},  // Cantidad
+                {wch:12},  // Tipo
+                {wch:12},  // Distribuidor
+                {wch:12},  // Tipo Inst.
+                {wch:12},  // Tipo Venta
+                {wch:15},  // Tipo Producto
+                {wch:12},  // Fecha Doc.
+                {wch:12},  // Fecha Envío
+                {wch:15},  // Envío Perseo
+                {wch:30},  // Cliente Perseo
+                {wch:15},  // RUC Cliente
+                {wch:12},  // Empresa
+                {wch:18},  // Facturación Cruzada
+                {wch:15}   // Desglose Combo
+            ];
+
+            XLSX.utils.book_append_sheet(wb, ws, "Facturado");
+
+            // DESCARGAR
+            const fecha = new Date().toISOString().slice(0,19).replace(/:/g, '-');
+            const filename = `facturado_${idPeriodo}_${fecha}.xlsx`;
+            
+            const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+            const blob = new Blob([wbout], { type: 'application/octet-stream' });
+            const url = URL.createObjectURL(blob);
+            
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = filename;
+            link.style.display = 'none';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            URL.revokeObjectURL(url);
+        }
+
+        // Función para generar Excel de Ventas con XLSX.js (con rowspan)
+        function generarExcelVentas(datos, idPeriodo) {
+            const wb = XLSX.utils.book_new();
+            const ws = {};
+
+            // ENCABEZADOS - Todas las columnas del stored procedure sp_ventas (20 columnas)
+            XLSX.utils.sheet_add_aoa(ws, [
+                ['Contrato', 'Periodo', 'Ciudad', 'ID Inst.', 'Institución', 'Asesor', 'Documento', 
+                 '% Venta', 'Código', 'Nombre Libro', 'Precio', 'Cantidad', 'Tipo Venta', 'Distribuidor', 
+                 'Tipo Inst.', 'Tipo Venta Modalidad', 'Tipo Producto', 'Fecha Doc.', 'Empresa', 'Desglose Combo']
+            ], { origin: "A1" });
+
+            // DATOS CON ROWSPAN
+            let filas = [];
+            let merges = [];
+            let filaActual = 2; // Fila 2 en Excel (1 es encabezado)
+
+            datos.forEach(row => {
+                // Separar desgloses del combo
+                const codigos = row.Desglose_combo && row.Desglose_combo.trim() 
+                    ? row.Desglose_combo.split(',').map(c => c.trim()).filter(c => c)
+                    : [''];
+
+                const numCodigos = codigos.length;
+                const inicio = filaActual;
+                const fin = inicio + numCodigos - 1;
+
+                // Añadir filas
+                codigos.forEach((codigo, i) => {
+                    filas.push([
+                        i === 0 ? (row.contrato_generado || '') : '',
+                        i === 0 ? (row.periodo || '') : '',
+                        i === 0 ? (row.ciudad_nombre || '') : '',
+                        i === 0 ? (row.id_institucion || '') : '',
+                        i === 0 ? (row.nombreInstitucion || '') : '',
+                        i === 0 ? (row.asesor || '') : '',
+                        i === 0 ? (row.documentoVenta || '') : '',
+                        i === 0 ? (row.porcentaje_venta || 0) : '',
+                        i === 0 ? (row.pro_codigo || '') : '',
+                        i === 0 ? (row.nombre_libro || '') : '',
+                        i === 0 ? (row.precio || 0) : '',
+                        i === 0 ? (row.cantidad || 0) : '',
+                        i === 0 ? (row.tipo_venta || '') : '',
+                        i === 0 ? (row.distribuidor || '') : '',
+                        i === 0 ? (row.tipo_institucion || '') : '',
+                        i === 0 ? (row.tipo_venta_modalidad || '') : '',
+                        i === 0 ? (row.tipo_producto || '') : '',
+                        i === 0 ? (row.fecha_documento || '') : '',
+                        i === 0 ? (row.Empresa || '') : '',
+                        codigo  // SIEMPRE: código del desglose
+                    ]);
+                });
+
+                // MERGES CORRECTOS (Excel usa filas 0-based internamente)
+                if (numCodigos > 1) {
+                    // Fusionar todas las columnas EXCEPTO Desglose_combo (columna 19)
+                    for (let col = 0; col < 19; col++) {
+                        merges.push({ s: { r: inicio - 1, c: col }, e: { r: fin - 1, c: col } });
+                    }
+                }
+
+                filaActual += numCodigos;
+            });
+
+            // AGREGAR FILAS DE DATOS EN A2
+            XLSX.utils.sheet_add_aoa(ws, filas, { origin: "A2" });
+
+            // APLICAR MERGES
+            ws["!merges"] = merges;
+
+            // ANCHOS DE COLUMNA
+            ws["!cols"] = [
+                {wch:12},  // Contrato
+                {wch:12},  // Periodo
+                {wch:15},  // Ciudad
+                {wch:10},  // ID Inst.
+                {wch:35},  // Institución
+                {wch:25},  // Asesor
+                {wch:20},  // Documento
+                {wch:10},  // % Venta
+                {wch:12},  // Código
+                {wch:30},  // Nombre Libro
+                {wch:10},  // Precio
+                {wch:10},  // Cantidad
+                {wch:12},  // Tipo Venta
+                {wch:12},  // Distribuidor
+                {wch:12},  // Tipo Inst.
+                {wch:18},  // Tipo Venta Modalidad
+                {wch:15},  // Tipo Producto
+                {wch:12},  // Fecha Doc.
+                {wch:12},  // Empresa
+                {wch:15}   // Desglose Combo
+            ];
+
+            XLSX.utils.book_append_sheet(wb, ws, "Ventas");
+
+            // DESCARGAR
+            const fecha = new Date().toISOString().slice(0,19).replace(/:/g, '-');
+            const filename = `ventas_${idPeriodo}_${fecha}.xlsx`;
+            
+            const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+            const blob = new Blob([wbout], { type: 'application/octet-stream' });
+            const url = URL.createObjectURL(blob);
+            
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = filename;
+            link.style.display = 'none';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            URL.revokeObjectURL(url);
         }
     </script>
     </script>

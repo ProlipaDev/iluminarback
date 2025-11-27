@@ -17,6 +17,7 @@ use App\Traits\Pedidos\TraitPedidosGeneral;
 use DB;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
 
 class Pedidos2Controller extends Controller
 {
@@ -1206,6 +1207,9 @@ class Pedidos2Controller extends Controller
         if($request->crearUsuario)                                      { return $this->crearUsuario($request); }
         if($request->updateClienteInstitucion)                          { return $this->updateClienteInstitucion($request); }
         if($request->cambiarEstadoAgrupado )                            { return $this->cambiarEstadoAgrupado($request); }
+        if($request->getCedulaRegistroCivil)                            { return $this->getCedulaRegistroCivil($request); }
+        if($request->getRucBusqueda)                                    { return $this->getRucBusqueda($request); }
+        if($request->getPasaporteBusqueda)                              { return $this->getPasaporteBusqueda($request); }
     }
       //API:POST/pedidos2/pedidos?getValoresLibrosContratos
       public function getValoresLibrosContratos($asesor_id,$periodo_id,$request){
@@ -1309,25 +1313,25 @@ class Pedidos2Controller extends Controller
     public function crearUsuario($request)
     {
         $password = sha1(md5($request->cedula));
-    
+
         // 🔹 Obtener el valor original del campo email
         $emailRaw = isset($request->email) ? trim($request->email) : '';
-    
+
         // 🔹 Si el email está vacío o nulo → usar la cédula
         if ($emailRaw == '' || $emailRaw == null) {
             $emailRaw = $request->cedula;
         }
-    
+
         // 🔹 Separar los correos si hay varios (por salto de línea, coma o punto y coma)
         $emailList = preg_split("/[\r\n,;]+/", $emailRaw);
         $emailList = array_filter(array_map('trim', $emailList)); // limpiar
-    
+
         // 🔹 Tomar el primer correo o la cédula si no hay ninguno válido
         $emailFirst = (count($emailList) > 0) ? reset($emailList) : $request->cedula;
-    
+
         // 🔹 Preparar el campo "email" (todos los correos o la cédula)
         $emailFinal = (count($emailList) > 0) ? implode('; ', $emailList) : $request->cedula;
-    
+
         // 🔹 Crear el usuario
         $user = new User();
         $user->cedula = $request->cedula;
@@ -1342,17 +1346,17 @@ class Pedidos2Controller extends Controller
         $user->idcreadorusuario = $request->user_created;
         $user->telefono = $request->telefono;
         $user->save();
-    
+
         $query = DB::SELECT("
             SELECT u.idusuario, u.cedula, u.nombres, u.apellidos, u.email, u.telefono,
                    CONCAT_WS(' ', u.nombres, u.apellidos) AS usuario
             FROM usuario u
             WHERE u.cedula = '$request->cedula'
         ");
-    
+
         return $query;
     }
-    
+
     //API:POST/pedidos2/pedidos/updateClienteInstitucion=1
     public function updateClienteInstitucion($request){
         $institucion                                = Institucion::findOrFail($request->id_institucion);
@@ -1393,6 +1397,155 @@ class Pedidos2Controller extends Controller
         }
         return ["status" => "1", "message" => "Se actualizó correctamente"];
     }
+
+    //API:POST/pedidos2/pedidos/getCedulaRegistroCivil=1
+    public function getCedulaRegistroCivil(Request $request){
+        $cedula = $request->input('cedula');
+
+        // Validar que se envíe el parámetro cedula
+        if (!$cedula) {
+            return response()->json([
+                'status' => '0',
+                'message' => 'Falta enviar el parámetro cedula'
+            ], 400);
+        }
+
+        try {
+            $ruta = $this->tr_rutaCedulaRegistroCivil;
+
+            // Simular un navegador real para evitar el bloqueo de Cloudflare
+            $response = Http::withHeaders([
+                'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept' => 'application/json, text/plain, */*',
+                'Accept-Language' => 'es-ES,es;q=0.9,en;q=0.8',
+                'Accept-Encoding' => 'gzip, deflate, br',
+                'Content-Type' => 'application/json',
+                'Origin' => $this->tr_rutaCedulaDominio,
+                'Referer' => $this->tr_rutaCedulaDominio. '/',
+                'Connection' => 'keep-alive',
+                'Sec-Fetch-Dest' => 'empty',
+                'Sec-Fetch-Mode' => 'cors',
+                'Sec-Fetch-Site' => 'same-origin',
+            ])
+            ->timeout(30)
+            ->post($ruta, [
+                "identification" => $cedula,
+            ]);
+
+            // Verificar si la petición fue exitosa
+            if ($response->successful()) {
+                // buscar usuario
+                $user = Usuario::where('cedula', $cedula)->first();
+                return response()->json([
+                    'status' => '1',
+                    'data' => $response->json(),
+                    'user' => $user
+                ]);
+            }
+
+            // Si no fue exitosa, devolver el error
+            return response()->json([
+                'status' => '0',
+                'message' => 'Documento no encontrado',
+                'code' => $response->status(),
+                'response' => $response->body()
+            ], $response->status());
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => '0',
+                'message' => 'Error en la petición: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    //API:POST/pedidos2/pedidos/getRucBusqueda=1
+    public function getRucBusqueda(Request $request){
+        $ruc = $request->input('ruc');
+
+        // Validar que se envíe el parámetro ruc
+        if (!$ruc) {
+            return response()->json([
+                'status' => '0',
+                'message' => 'Falta enviar el parámetro ruc'
+            ], 400);
+        }
+
+        try {
+            $ruta = $this->tr_rutaRucSRI;
+
+            // Simular un navegador real para evitar el bloqueo de Cloudflare
+            $response = Http::withHeaders([
+                'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept' => 'application/json, text/plain, */*',
+                'Accept-Language' => 'es-ES,es;q=0.9,en;q=0.8',
+                'Accept-Encoding' => 'gzip, deflate, br',
+                'Content-Type' => 'application/json',
+                'Connection' => 'keep-alive',
+                'Sec-Fetch-Dest' => 'empty',
+                'Sec-Fetch-Mode' => 'cors',
+                'Sec-Fetch-Site' => 'same-origin',
+            ])
+            ->timeout(30)
+            ->get($ruta, [
+                "ruc" => $ruc,
+            ]);
+            // Verificar si la petición fue exitosa
+            if ($response->successful()) {
+                // buscar usuario
+                $user = Usuario::where('cedula', $ruc)->first();
+                return response()->json([
+                    'status' => '1',
+                    'data' => $response->json(),
+                    'user' => $user
+                ]);
+            }
+
+            // Si no fue exitosa, devolver el error
+            return response()->json([
+                'status' => '0',
+                'message' => 'RUC no encontrado',
+                'code' => $response->status(),
+                'response' => $response->body()
+            ], $response->status());
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => '0',
+                'message' => 'Error en la petición: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    //API:POST/pedidos2/pedidos/getPasaporteBusqueda=1&pasaporte=XYZ123456
+    public function getPasaporteBusqueda(Request $request){
+        $pasaporte = $request->input('pasaporte');
+
+        // Validar que se envíe el parámetro pasaporte
+        if (!$pasaporte) {
+            return response()->json([
+                'status' => '0',
+                'message' => 'Falta enviar el parámetro pasaporte'
+            ], 400);
+        }
+
+        try {
+            // buscar usuario
+            $user = Usuario::where('cedula', $pasaporte)->first();
+            return response()->json([
+                'status' => '1',
+                'data'   => [],
+                'user'   => $user
+            ]);
+        }
+        catch (\Exception $e) {
+            return response()->json([
+                'status' => '0',
+                'message' => 'Error en la petición: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
     //api:get/pedidosDespacho?ca_codigo_agrupado=1265&id_periodo=23
     public function pedidosDespacho(Request $request){
         $ca_codigo_agrupado = $request->id_despacho;

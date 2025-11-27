@@ -983,7 +983,7 @@ class PreguntaController extends Controller
 
             return response()->json([
                 "status"  => "1",
-                "message" => "Se han movido $contador preguntas correctamente.",
+                "message" => "Se copiaron $contador preguntas correctamente.",
                 "preguntas_existentes" => $arrayPreguntasExistentes
             ], 200);
 

@@ -20,6 +20,20 @@ class _14ProductoController extends Controller {
         return $query;
     }
 
+    //api:get/GetProductoXGrupo?grupo_codigo=1&sinCombos=1
+    public function GetProductoXGrupo(Request $request){
+        $grupo_codigo = $request->grupo_codigo;
+        $sinCombos    = $request->sinCombos ?? 0;
+        if($sinCombos == 1){
+            $condicionCombo = " AND ifcombo = 0 ";
+        }
+        $query = DB:: SELECT("SELECT p.*, CONCAT(p.pro_codigo,' - ',p.pro_nombre) as  pro_codigo_nombre FROM 1_4_cal_producto p
+        WHERE p.gru_pro_codigo = '$grupo_codigo '
+        $condicionCombo
+        ORDER BY p.pro_nombre ASC");
+        return $query;
+    }
+
     public function GetProducto_Reportes(Request $request) {
         $grupoCodigos = $request->input('grupo_codigo_selected');
         $tipoReporte = $request->input('tipoReporte');
@@ -545,9 +559,13 @@ class _14ProductoController extends Controller {
 
     public function GetProductoActivosxFiltro(Request $request) {
         if ($request -> busqueda == 'codigopro') {
-            $query = DB:: SELECT("SELECT p.*, g.gru_pro_nombre, ls.iniciales, ls.id_serie, s.nombre_serie, l.nombrelibro, l.idlibro, ls.year
+            $query = DB:: SELECT("SELECT p.*, g.gru_pro_nombre, ls.iniciales, ls.id_serie, s.nombre_serie, l.nombrelibro, l.idlibro, ls.year,
+            pdr.pro_nombre AS nombre_producto_padre,
+            grv3.gru_pro_nombre AS nombre_grupo_v3
             FROM 1_4_cal_producto p
+            LEFT JOIN 1_4_cal_producto pdr ON p.id_pro_codigo_padre = pdr.pro_codigo
             INNER JOIN 1_4_grupo_productos g ON p.gru_pro_codigo = g.gru_pro_codigo
+            LEFT JOIN 1_4_grupo_productos grv3 ON p.grupo_codigo_para_v3 = grv3.gru_pro_codigo
             LEFT JOIN libros_series ls ON p.pro_codigo = ls.codigo_liquidacion
             LEFT JOIN libro l ON ls.idLibro = l.idlibro
             LEFT JOIN series s ON s.id_serie = ls.id_serie
@@ -565,9 +583,13 @@ class _14ProductoController extends Controller {
             return $query;
         }
         if ($request -> busqueda == 'undefined' || $request -> busqueda == '' || $request -> busqueda == null) {
-            $query = DB:: SELECT("SELECT p.*, g.gru_pro_nombre, ls.iniciales, ls.id_serie, s.nombre_serie, l.nombrelibro, l.idlibro, ls.year
+            $query = DB:: SELECT("SELECT p.*, g.gru_pro_nombre, ls.iniciales, ls.id_serie, s.nombre_serie, l.nombrelibro, l.idlibro, ls.year,
+            pdr.pro_nombre AS nombre_producto_padre,
+            grv3.gru_pro_nombre AS nombre_grupo_v3
             FROM 1_4_cal_producto p
+            LEFT JOIN 1_4_cal_producto pdr ON p.id_pro_codigo_padre = pdr.pro_codigo
             INNER JOIN 1_4_grupo_productos g ON p.gru_pro_codigo = g.gru_pro_codigo
+            LEFT JOIN 1_4_grupo_productos grv3 ON p.grupo_codigo_para_v3 = grv3.gru_pro_codigo
             LEFT JOIN libros_series ls ON p.pro_codigo = ls.codigo_liquidacion
             LEFT JOIN libro l ON ls.idLibro = l.idlibro
             LEFT JOIN series s ON s.id_serie = ls.id_serie
@@ -585,13 +607,17 @@ class _14ProductoController extends Controller {
             return $query;
         }
         if ($request -> busqueda == 'nombres') {
-            $query = DB:: SELECT("SELECT p.*, g.gru_pro_nombre, ls.iniciales, ls.id_serie, s.nombre_serie, l.nombrelibro, l.idlibro, ls.year
+            $query = DB:: SELECT("SELECT p.*, g.gru_pro_nombre, ls.iniciales, ls.id_serie, s.nombre_serie, l.nombrelibro, l.idlibro, ls.year,
+            pdr.pro_nombre AS nombre_producto_padre,
+            grv3.gru_pro_nombre AS nombre_grupo_v3
             FROM 1_4_cal_producto p
+            LEFT JOIN 1_4_cal_producto pdr ON p.id_pro_codigo_padre = pdr.pro_codigo
             INNER JOIN 1_4_grupo_productos g ON p.gru_pro_codigo = g.gru_pro_codigo
+            LEFT JOIN 1_4_grupo_productos grv3 ON p.grupo_codigo_para_v3 = grv3.gru_pro_codigo
             LEFT JOIN libros_series ls ON p.pro_codigo = ls.iniciales
             LEFT JOIN libro l ON ls.idLibro = l.idlibro
             LEFT JOIN series s ON s.id_serie = ls.id_serie
-            WHERE pro_nombre LIKE '%$request->razonbusqueda%' AND pro_estado = 1");
+            WHERE p.pro_nombre LIKE '%$request->razonbusqueda%' AND p.pro_estado = 1");
             foreach($query as $key => $item){
                 $ifcombo = $item->ifcombo;
                 if($ifcombo == 1){
@@ -631,6 +657,8 @@ class _14ProductoController extends Controller {
                     'updated_at' => now(),
                     'ifcombo'           => $request->ifcombo,
                     'codigos_combos'    => $request->codigos_combos ?? null,
+                    'id_pro_codigo_padre' => $request->id_pro_codigo_padre ?? null,
+                    'grupo_codigo_para_v3' => $request->grupo_codigo_para_v3 ?? null,
                 ]
             );
 
@@ -741,6 +769,8 @@ class _14ProductoController extends Controller {
                     'user_created' => $request->user_created,
                     'pro_depositoCalmed' => $request->pro_depositoCalmed,
                     'pro_stockCalmed' => $request->pro_stockCalmed,
+                    'id_pro_codigo_padre' => $request->id_pro_codigo_padre,
+                    'grupo_codigo_para_v3' => $request->grupo_codigo_para_v3 ?? null,
                     'created_at' => now(),
                     'updated_at' => now()
                 ]);
@@ -761,6 +791,8 @@ class _14ProductoController extends Controller {
                     'pro_peso' => $request->pro_peso,
                     'pro_depositoCalmed' => $request->pro_depositoCalmed,
                     'pro_stockCalmed' => $request->pro_stockCalmed,
+                    'id_pro_codigo_padre' => $request->id_pro_codigo_padre,
+                    'grupo_codigo_para_v3' => $request->grupo_codigo_para_v3 ?? null,
                     'updated_at' => now()
                 ]);
             }

@@ -178,7 +178,8 @@ class DocenteController extends Controller
         $agenda = DB::SELECT("SELECT a.periodo_id,a.institucion_id_temporal,a.estado,i.nombreInstitucion, a.id,
         a.id_usuario, a.nombre_institucion_temporal,a.estado_institucion_temporal,a.fecha_que_visita,
          CONCAT(a.title, ' (', a.hora_inicio, ' - ', a.hora_fin, ')' ) as title, a.label, a.classes,
-          a.startDate, a.endDate, a.hora_inicio, a.hora_fin, a.url, a.opciones, a.institucion_id
+          a.startDate, a.endDate, a.hora_inicio, a.hora_fin, a.url, a.opciones, a.institucion_id,
+          a.longitud, a.latitud, a.fecha_captura_longitud
           FROM agenda_usuario a
          LEFT JOIN institucion i ON a.institucion_id = i.idInstitucion
          WHERE a.id_usuario = $docente
@@ -195,9 +196,19 @@ class DocenteController extends Controller
                 $agenda->estado            = "1";
                 $agenda->fecha_que_visita  = $request->fecha_que_visita;
             }
+            // si ya tiene latitud y longitud no la actualiza
+            if($agenda->latitud){}
+            else{
+                $agenda->latitud  = $request->latitud;
+                $agenda->longitud = $request->longitud;
+                $agenda->fecha_captura_longitud = date('Y-m-d H:i:s');
+            }
 
         }else{
             $agenda = new Agenda();
+            $agenda->latitud  = $request->latitud;
+            $agenda->longitud = $request->longitud;
+            $agenda->fecha_captura_longitud = date('Y-m-d H:i:s');
         }
         //si crean una insitucion temporal
         if($request->estado_institucion_temporal == 1){
@@ -230,7 +241,6 @@ class DocenteController extends Controller
         $agenda->url = $request->url;
         $agenda->opciones = $request->opciones;
         $agenda->estado_institucion_temporal =$request->estado_institucion_temporal;
-
 
         $agenda->save();
         //guardar en caso que sea otra editorial

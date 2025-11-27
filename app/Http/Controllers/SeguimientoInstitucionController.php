@@ -225,6 +225,9 @@ class SeguimientoInstitucionController extends Controller
             $agenda->save();
             return ["status" => "1","message" => "Se elimino correctamente"];
         }
+        if($request->opciones == "undefined" || $request->opciones == null){
+            return ["status" => "0","message" => "Debe seleccionar una opcion"];
+        }
         if( $request->id != 0 ){
             $agenda = Agenda::find($request->id);
             if($request->finalizar){

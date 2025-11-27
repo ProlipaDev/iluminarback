@@ -564,7 +564,9 @@ class LibroController extends Controller
                 'ls.iniciales', 'ls.codigo_liquidacion', 'ls.year', 'ls.version', 'ls.id_libro_plus',
                 's.id_serie', 's.nombre_serie', 'ls.nombre', 'p.ifcombo', 'p.codigos_combos',
                 'folleto.nombrelibro as folleto_nombre','folleto_ls.id_serie as folleto_id_serie',
-                'libro_plus.nombrelibro as libro_plus_nombre','libro_plus_ls.id_serie as libro_plus_id_serie'
+                'libro_plus.nombrelibro as libro_plus_nombre','libro_plus_ls.id_serie as libro_plus_id_serie',
+                'gpv3.gru_pro_nombre as nombre_grupo_v3','p.grupo_codigo_para_v3',
+                'p.id_pro_codigo_padre','pdr.pro_nombre AS nombre_producto_padre'
         )
         ->leftJoin('asignatura as a', 'a.idasignatura', '=', 'l.asignatura_idasignatura')
         ->leftJoin('libros_series as ls', 'ls.idLibro', '=', 'l.idlibro')
@@ -573,7 +575,9 @@ class LibroController extends Controller
         ->leftJoin('libros_series as folleto_ls', 'folleto_ls.idLibro', '=', 'folleto.idlibro')
         ->leftJoin('libro as libro_plus', 'libro_plus.idlibro', '=', 'ls.id_libro_plus')
         ->leftJoin('libros_series as libro_plus_ls', 'libro_plus_ls.idLibro', '=', 'libro_plus.idlibro')
-        ->leftJoin('1_4_cal_producto as p', 'ls.codigo_liquidacion', '=', 'p.pro_codigo');
+        ->leftJoin('1_4_cal_producto as p', 'ls.codigo_liquidacion', '=', 'p.pro_codigo')
+        ->leftJoin('1_4_grupo_productos as gpv3', 'p.grupo_codigo_para_v3', '=', 'gpv3.gru_pro_codigo')
+        ->leftJoin('1_4_cal_producto AS pdr','pdr.pro_codigo','=','p.id_pro_codigo_padre');
 
     // Determine the WHERE clause based on the 'tipo' parameter
     switch ($request->tipo) {
@@ -676,6 +680,8 @@ class LibroController extends Controller
                         'pro_descripcion'   => $libro->descripcionlibro,
                         'ifcombo'           => $request->ifcombo,
                         'codigos_combos'    => $request->codigos_combos ?? null,
+                        'grupo_codigo_para_v3' => $request->grupo_codigo_para_v3 ?? null,
+                        'id_pro_codigo_padre'   => $request->id_pro_codigo_padre ?? null
                     ]);
                     // actualizar por codigo de liquidacion en libro series
                     // DB::table('libros_series')

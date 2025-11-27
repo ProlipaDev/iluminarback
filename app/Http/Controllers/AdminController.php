@@ -865,34 +865,25 @@ class AdminController extends Controller
         return $result;
     }
     public function pruebaData(Request $request){
-        $query = DB::SELECT("SELECT h.codigo_devolucion, c.documento_devolucion,
-        c.codigo_proforma, c.proforma_empresa , c.factura as facturaOriginal,
-        s.*
-        FROM codigoslibros_devolucion_desarmados_son s
-        LEFT JOIN codigoslibros_devolucion_desarmados_header h ON h.id = s.codigoslibros_devolucion_desarmados_header_id
-        LEFT JOIN codigoslibros c ON c.codigo = s.codigo
+        $query = DB::SELECT("SELECT st.combo AS comboTest, s.combo , s.id, s.temporal
+            FROM codigoslibros_devolucion_desarmados_son s
+            INNER JOIN codigoslibros_devolucion_desarmados_son_test st ON st.id = s.id
+            WHERE s.temporal = 0
+            AND s.combo IS NOT NULL
+
         ");
         $contador = 0;
         $arrayNoGuardados = [];
         foreach($query as $key => $item){
-            $codigo_devolucion      = $item->codigo_devolucion;
-            $documento_devolucion   = $item->documento_devolucion;
-            $codigo                 = $item->codigo;
-            $codigo_proforma        = $item->codigo_proforma;
-            $proforma_empresa       = $item->proforma_empresa;
-            $factura                = $item->facturaOriginal;
-            if($codigo_devolucion == $documento_devolucion){
+            $comboTest              = $item->comboTest;
                 DB::table('codigoslibros_devolucion_desarmados_son')
                 ->where('id', $item->id)
                 ->update([
-                    'documento'      => $codigo_proforma,
-                    'id_empresa'   => $proforma_empresa,
-                    'factura'        => $factura,
+                    'combo'      => $comboTest,
+                    'temporal'   => '1'
                 ]);
                 $contador++;
-            }else{
-                $arrayNoGuardados[] = $item;
-            }
+
         }
         return [
             "guardados"         => $contador,
@@ -2559,6 +2550,12 @@ class AdminController extends Controller
             }
 
             if ($formato === 'excel') {
+                if($procedimiento['sp'] === 'sp_facturado'){
+                    return $this->generarJsonFacturado($tipo_reporte, $id_periodo, $procedimiento, $startTime);
+                }
+                if($procedimiento['sp'] === 'sp_ventas'){
+                    return $this->generarJsonVentas($tipo_reporte, $id_periodo, $procedimiento, $startTime);
+                }
                 return $this->generarExcel($tipo_reporte, $id_periodo, $procedimiento, $startTime);
             } else {
                 return $this->generarCSV($tipo_reporte, $id_periodo, $procedimiento, $startTime);
@@ -2573,10 +2570,218 @@ class AdminController extends Controller
             ], 500);
         }
     }
+    
+    private function generarJsonFacturado($tipo_reporte, $id_periodo, $procedimiento, $startTime){
+        try {
+            // Usar DB::select en lugar de PDO directo para evitar problemas de packets
+            $datos = DB::select("CALL {$procedimiento['sp']}(?)", [$procedimiento['periodo']]);
 
-    /**
-     * Generar archivo CSV
-     */
+            $totalTime = round(microtime(true) - $startTime, 2);
+            \Log::info("JSON Facturado generado: " . count($datos) . " registros en {$totalTime}s");
+
+            return response()->json([
+                'status' => 1,
+                'datos' => $datos,
+                'total_registros' => count($datos),
+                'tiempo_ejecucion' => $totalTime
+            ]);
+
+        } catch (\Exception $e) {
+            \Log::error("Error generando JSON Facturado: " . $e->getMessage());
+            return response()->json([
+                'status' => 0,
+                'message' => 'Error al generar datos: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+    
+    private function generarJsonVentas($tipo_reporte, $id_periodo, $procedimiento, $startTime){
+        try {
+            // Usar DB::select en lugar de PDO directo para evitar problemas de packets
+            $datos = DB::select("CALL {$procedimiento['sp']}(?)", [$procedimiento['periodo']]);
+
+            $totalTime = round(microtime(true) - $startTime, 2);
+            \Log::info("JSON Ventas generado: " . count($datos) . " registros en {$totalTime}s");
+
+            return response()->json([
+                'status' => 1,
+                'datos' => $datos,
+                'total_registros' => count($datos),
+                'tiempo_ejecucion' => $totalTime
+            ]);
+
+        } catch (\Exception $e) {
+            \Log::error("Error generando JSON Ventas: " . $e->getMessage());
+            return response()->json([
+                'status' => 0,
+                'message' => 'Error al generar datos: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+    
+    private function generarExcelFacturado($tipo_reporte, $id_periodo, $procedimiento, $startTime){
+        if (!class_exists('PhpOffice\PhpSpreadsheet\Spreadsheet')) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'La librería PhpSpreadsheet no está instalada. Use formato CSV como alternativa.'
+            ], 400);
+        }
+
+        try {
+            $periodo = DB::table('periodoescolar')
+                ->select('descripcion', 'periodoescolar')
+                ->where('idperiodoescolar', $id_periodo)
+                ->first();
+
+            $descripcionPeriodo = ($periodo && !empty($periodo->descripcion)) 
+                ? $periodo->descripcion 
+                : ($periodo ? $periodo->periodoescolar : $id_periodo);
+
+            $descripcionLimpia = preg_replace('/[^A-Za-z0-9\-_]/', '_', $descripcionPeriodo);
+            $fecha = date('Y-m-d_H-i-s');
+            $filename = "{$tipo_reporte}_{$descripcionLimpia}_{$fecha}.xlsx";
+
+            $headers = [
+                'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                'Content-Disposition' => "attachment; filename=\"$filename\"",
+                'Cache-Control' => 'no-cache, no-store, must-revalidate',
+                'Pragma' => 'no-cache',
+                'Expires' => '0',
+            ];
+
+            return response()->stream(function() use ($procedimiento, $tipo_reporte, $id_periodo, $startTime) {
+                try {
+                    $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+                    $sheet = $spreadsheet->getActiveSheet();
+                    $sheet->setTitle(ucfirst($tipo_reporte));
+
+                    $pdo = DB::getPdo();
+                    $stmt = $pdo->prepare("CALL {$procedimiento['sp']}(?)");
+                    $stmt->execute([$procedimiento['periodo']]);
+
+                    // === ENCABEZADOS FIJOS ===
+                    $headers = [
+                        'Documento', 'Institución', 'Asesor', 'Código Combo',
+                        'Precio Unit.', 'Cantidad', 'Tipo Producto', 'Fecha Documento'
+                    ];
+
+                    foreach ($headers as $col => $header) {
+                        $sheet->setCellValue(chr(65 + $col) . '1', $header);
+                    }
+
+                    $rowCount = 2; // Datos empiezan en fila 2
+                    $mergeRanges = []; // Para combinar celdas (rowspan)
+
+                    // === CASO ESPECIAL: FACTURADO CON DESGLOSE ===
+                    if ($tipo_reporte === 'facturado') {
+                        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                            $codigos = !empty($row['Desglose_combo'])
+                                ? array_filter(explode(',', $row['Desglose_combo']))
+                                : ['(Sin combo)'];
+
+                            $numCodigos = count($codigos);
+                            $inicioFila = $rowCount;
+                            $finFila = $inicioFila + $numCodigos - 1;
+
+                            foreach ($codigos as $idx => $codigo) {
+                                $filaActual = $rowCount;
+
+                                // Solo en la primera fila del grupo
+                                if ($idx === 0) {
+                                    $sheet->setCellValue('A' . $filaActual, $row['documentoVenta'] ?? '');
+                                    $sheet->setCellValue('B' . $filaActual, $row['nombreInstitucion'] ?? '');
+                                    $sheet->setCellValue('C' . $filaActual, $row['asesor'] ?? '');
+                                    $sheet->setCellValue('E' . $filaActual, $row['precio'] ?? 0);
+                                    $sheet->setCellValue('F' . $filaActual, $row['cantidad'] ?? 0);
+                                    $sheet->setCellValue('G' . $filaActual, $row['tipo_producto'] ?? '');
+                                    $sheet->setCellValue('H' . $filaActual, $row['fecha_documento'] ?? '');
+                                }
+
+                                // Siempre: código del combo
+                                $sheet->setCellValue('D' . $filaActual, trim($codigo));
+
+                                $rowCount++;
+                            }
+
+                            // === AÑADIR MERGES (rowspan) si hay más de 1 código ===
+                            if ($numCodigos > 1) {
+                                $mergeRanges[] = "A{$inicioFila}:A{$finFila}"; // Documento
+                                $mergeRanges[] = "B{$inicioFila}:B{$finFila}"; // Institución
+                                $mergeRanges[] = "C{$inicioFila}:C{$finFila}"; // Asesor
+                                $mergeRanges[] = "E{$inicioFila}:E{$finFila}"; // Precio
+                                $mergeRanges[] = "F{$inicioFila}:F{$finFila}"; // Cantidad
+                                $mergeRanges[] = "G{$inicioFila}:G{$finFila}"; // Tipo
+                                $mergeRanges[] = "H{$inicioFila}:H{$finFila}"; // Fecha
+                            }
+                        }
+                    } 
+                    // === OTROS REPORTES: Formato normal (sin desglose) ===
+                    else {
+                        $headerWritten = false;
+                        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                            if (!$headerWritten) {
+                                $col = 'A';
+                                foreach (array_keys($row) as $header) {
+                                    $sheet->setCellValue($col . '1', $header);
+                                    $col++;
+                                }
+                                $headerWritten = true;
+                                $rowCount = 2;
+                            }
+
+                            $col = 'A';
+                            foreach (array_values($row) as $value) {
+                                $sheet->setCellValue($col . $rowCount, $value);
+                                $col++;
+                            }
+                            $rowCount++;
+                        }
+                    }
+
+                    // === APLICAR MERGES ===
+                    if (!empty($mergeRanges)) {
+                        foreach ($mergeRanges as $range) {
+                            $sheet->mergeCells($range);
+                            // Opcional: centrar verticalmente
+                            $sheet->getStyle($range)->getAlignment()->setVertical(\PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_CENTER);
+                        }
+                    }
+
+                    // === AUTOAJUSTAR COLUMNAS ===
+                    foreach (range('A', 'H') as $col) {
+                        $sheet->getColumnDimension($col)->setAutoSize(true);
+                    }
+
+                    // === LOG FINAL ===
+                    $totalTime = round(microtime(true) - $startTime, 2);
+                    \Log::info("Excel $tipo_reporte generado: " . ($rowCount-1) . " filas en {$totalTime}s");
+
+                    $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
+                    $writer->save('php://output');
+
+                    $spreadsheet->disconnectWorksheets();
+                    unset($spreadsheet, $stmt, $pdo);
+
+                } catch (\Exception $e) {
+                    \Log::error("Error en stream Excel $tipo_reporte: " . $e->getMessage());
+                    $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+                    $sheet = $spreadsheet->getActiveSheet();
+                    $sheet->setCellValue('A1', 'Error');
+                    $sheet->setCellValue('B1', $e->getMessage());
+                    $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
+                    $writer->save('php://output');
+                }
+            }, 200, $headers);
+
+        } catch (\Exception $e) {
+            \Log::error("Error configurando Excel: " . $e->getMessage());
+            return response()->json([
+                'status' => 0,
+                'message' => 'Error al generar Excel: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
     private function generarCSV($tipo_reporte, $id_periodo, $procedimiento, $startTime)
     {
         // Obtener la descripción del período
@@ -2689,6 +2894,7 @@ class AdminController extends Controller
         }, 200, $headers);
     }
 
+    
     /**
      * Generar archivo Excel
      */
@@ -2730,8 +2936,6 @@ class AdminController extends Controller
                 'Expires' => '0',
             ];
 
-            // Advertencia: Excel es más lento
-            \Log::info("Iniciando generación Excel para $tipo_reporte - ADVERTENCIA: Proceso más lento que CSV");
 
             return response()->stream(function() use ($procedimiento, $tipo_reporte, $id_periodo, $startTime) {
                 try {
@@ -2742,14 +2946,97 @@ class AdminController extends Controller
                     // Ejecutar procedimiento almacenado
                     $pdo = DB::getPdo();
                     $stmt = $pdo->prepare("CALL {$procedimiento['sp']}(?)");
-                    $result = $stmt->execute([$procedimiento['periodo']]);
+                    $stmt->execute([$procedimiento['periodo']]);
 
-                    if (!$result) {
-                        $sheet->setCellValue('A1', 'Error');
-                        $sheet->setCellValue('B1', 'Error al ejecutar procedimiento: ' . implode('; ', $stmt->errorInfo()));
-                    } else {
+                    // === CASO ESPECIAL: FACTURADO (agrupado por factura) ===
+                    if ($tipo_reporte === 'facturado') {
+                        $facturas = [];
+                        $rowCount = 0;
+
+                        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                            $key = $row['documentoVenta'] ?? 'SIN_DOC_' . $rowCount;
+
+                            if (!isset($facturas[$key])) {
+                                $facturas[$key] = [
+                                    'documentoVenta'     => $row['documentoVenta'] ?? '',
+                                    'nombreInstitucion' => $row['nombreInstitucion'] ?? '',
+                                    'asesor'             => $row['asesor'] ?? '',
+                                    'precio'             => $row['precio'] ?? 0,
+                                    'cantidad'           => $row['cantidad'] ?? 0,
+                                    'tipo_producto'      => $row['tipo_producto'] ?? '',
+                                    'fecha_documento'    => $row['fecha_documento'] ?? '',
+                                    'codigos'            => []
+                                ];
+                            }
+
+                            // === DESGLOSE DE COMBOS ===
+                            if (!empty($row['Desglose_combo'])) {
+                                $codigos = array_filter(explode(',', $row['Desglose_combo']));
+                                foreach ($codigos as $cod) {
+                                    $cod = trim($cod);
+                                    if ($cod && !in_array($cod, $facturas[$key]['codigos'])) {
+                                        // BONUS: Agregar nombre del libro
+                                        $nombreLibro = DB::table('libros_series')
+                                            ->where('codigo_liquidacion', $cod)
+                                            ->value('nombre');
+
+                                        $texto = $cod;
+                                        if ($nombreLibro) {
+                                            $texto .= " - $nombreLibro";
+                                        }
+                                        $facturas[$key]['codigos'][] = $texto;
+                                    }
+                                }
+                            }
+                            $rowCount++;
+                        }
+
+                        // Encabezados personalizados
+                        $sheet->setCellValue('A1', 'Documento');
+                        $sheet->setCellValue('B1', 'Institución');
+                        $sheet->setCellValue('C1', 'Asesor');
+                        $sheet->setCellValue('D1', 'Desglose Combo');
+                        $sheet->setCellValue('E1', 'Precio Unit.');
+                        $sheet->setCellValue('F1', 'Cantidad');
+                        $sheet->setCellValue('G1', 'Tipo Producto');
+                        $sheet->setCellValue('H1', 'Fecha Documento');
+
+                        // Datos agrupados
+                        $fila = 2;
+                        foreach ($facturas as $f) {
+                            $desglose = !empty($f['codigos'])
+                                ? implode("\n", $f['codigos'])  // Salto de línea para mejor lectura en Excel
+                                : '(Sin combo)';
+
+                            $sheet->setCellValue("A$fila", $f['documentoVenta']);
+                            $sheet->setCellValue("B$fila", $f['nombreInstitucion']);
+                            $sheet->setCellValue("C$fila", $f['asesor']);
+                            $sheet->setCellValue("D$fila", $desglose);
+                            $sheet->setCellValue("E$fila", $f['precio']);
+                            $sheet->setCellValue("F$fila", $f['cantidad']);
+                            $sheet->setCellValue("G$fila", $f['tipo_producto']);
+                            $sheet->setCellValue("H$fila", $f['fecha_documento']);
+
+                            // Ajustar altura de fila y permitir saltos de línea
+                            $sheet->getRowDimension($fila)->setRowHeight(-1); // Auto altura
+                            $sheet->getStyle("D$fila")->getAlignment()
+                                ->setWrapText(true)
+                                ->setVertical(\PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_TOP);
+
+                            $fila++;
+                        }
+
+                        // Autoajustar columnas
+                        foreach (range('A', 'H') as $col) {
+                            $sheet->getColumnDimension($col)->setAutoSize(true);
+                        }
+
+                        \Log::info("Excel FACTURADO agrupado generado: " . count($facturas) . " facturas en " . round(microtime(true) - $startTime, 2) . "s");
+                    }
+                    // === OTROS REPORTES: Formato normal (fila por fila) ===
+                    else {
                         $headerWritten = false;
-                        $rowCount = 1; // Excel rows start at 1
+                        $rowCount = 1;
 
                         while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
                             if (!$headerWritten) {
@@ -2760,7 +3047,7 @@ class AdminController extends Controller
                                     $col++;
                                 }
                                 $headerWritten = true;
-                                $rowCount = 2; // Data starts at row 2
+                                $rowCount = 2;
                             }
 
                             // Escribir datos
@@ -2771,15 +3058,11 @@ class AdminController extends Controller
                             }
                             $rowCount++;
 
-                            // Log de progreso cada 10k registros (menor frecuencia para Excel)
                             if ($rowCount % 10000 === 0) {
                                 $elapsed = round(microtime(true) - $startTime, 2);
-                                \Log::info("Progreso descarga Excel $tipo_reporte: " . ($rowCount-1) . " registros procesados en {$elapsed}s");
+                                \Log::info("Progreso Excel $tipo_reporte: " . ($rowCount-1) . " filas en {$elapsed}s");
                             }
                         }
-
-                        $totalTime = round(microtime(true) - $startTime, 2);
-                        \Log::info("Descarga Excel $tipo_reporte completada: " . ($rowCount-1) . " registros en {$totalTime}s");
                     }
 
                     // Generar archivo Excel
@@ -2787,7 +3070,7 @@ class AdminController extends Controller
                     $writer->save('php://output');
 
                     $spreadsheet->disconnectWorksheets();
-                    unset($spreadsheet);
+                    unset($spreadsheet, $stmt);
 
                 } catch (\Exception $e) {
                     \Log::error("Error en generación Excel $tipo_reporte: " . $e->getMessage());
@@ -2803,11 +3086,8 @@ class AdminController extends Controller
             }, 200, $headers);
 
         } catch (\Exception $e) {
-            \Log::error("Error al configurar descarga Excel: " . $e->getMessage());
-            return response()->json([
-                'status' => 0,
-                'message' => 'Error al generar Excel: ' . $e->getMessage() . '. Use formato CSV como alternativa.'
-            ], 500);
+            \Log::error("Error configurando Excel: " . $e->getMessage());
+            return response()->json(['status' => 0, 'message' => 'Error al generar Excel'], 500);
         }
     }
 

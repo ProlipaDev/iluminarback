@@ -21,6 +21,9 @@ trait TraitPedidosGeneral
     //=====END SOLINFA======
     public $ipProlipa                   = "http://186.4.218.168:9095/api/";
     public $ipPerseo                    = "http://45.184.225.106:8181/api/";
+    public $tr_rutaCedulaDominio        = "https://app3902.privynote.net";
+    public $tr_rutaCedulaRegistroCivil  = "https://app3902.privynote.net/api/v1/client/find-names";
+    public $tr_rutaRucSRI               = "https://srienlinea.sri.gob.ec/sri-catastro-sujeto-servicio-internet/rest/ConsolidadoContribuyente/obtenerPorNumerosRuc";
     public $tr_periodoPedido            = 4;
     public $gl_perseoProduccion         = 1;
     // public $ipLocal        = "http://localhost:5000/api/";
@@ -248,13 +251,34 @@ trait TraitPedidosGeneral
     }
     public function getAllBeneficiarios($id_pedido)
     {
-        $query = DB::SELECT("SELECT  b.*,
+        $query = DB::SELECT("select b.*,
         CONCAT(u.nombres, ' ',u.apellidos) AS beneficiario,
+        CONCAT(userv.nombres, ' ',userv.apellidos) AS usuarioVerificado,
         u.cedula,u.nombres,u.apellidos,p.descuento,p.total_venta,p.contrato_generado
-         FROM pedidos_beneficiarios b
-         LEFT JOIN pedidos p ON b.id_pedido = p.id_pedido
-         LEFT JOIN usuario u ON  b.id_usuario = u.idusuario
+        FROM pedidos_beneficiarios b
+        LEFT JOIN pedidos p ON b.id_pedido = p.id_pedido
+        LEFT JOIN usuario u ON  b.id_usuario = u.idusuario
+        LEFT JOIN usuario userv ON userv.idusuario = b.user_verificado
         WHERE b.id_pedido = '$id_pedido'
+        AND b.estado = '1'
+        ");
+        return $query;
+    }
+    public function tr_getAllBeneficiariosPeriodoInstitucion($periodo,$institucion)
+    {
+        $query = DB::SELECT("SELECT b.*,
+            CONCAT(u.nombres, ' ',u.apellidos) AS beneficiario,
+            CONCAT(userv.nombres, ' ',userv.apellidos) AS usuarioVerificado,
+            u.cedula,u.nombres,u.apellidos,
+            0 AS descuento, 0 AS total_venta, NULL contrato_generado,
+            0 AS  valorComisionReal, 0 AS total_alcances
+            FROM pedidos_beneficiarios b
+            LEFT JOIN pedidos p ON b.id_pedido = p.id_pedido
+            LEFT JOIN usuario u ON  b.id_usuario = u.idusuario
+            LEFT JOIN usuario userv ON userv.idusuario = b.user_verificado
+            where b.estado = '1'
+            AND b.idInstitucion = '$institucion'
+            AND b.idperiodoescolar = '$periodo'
         ");
         return $query;
     }

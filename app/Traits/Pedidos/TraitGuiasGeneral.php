@@ -48,23 +48,35 @@ trait TraitGuiasGeneral
         ");
         return $query;
     }
-    public function tr_cantidadDevuelta($asesor_id, $pro_codigo, $periodo_id) {
-        return DB::table('pedidos_guias_devolucion_detalle as gd')
-            ->leftJoin('pedidos_guias_devolucion as d', 'd.id', '=', 'gd.pedidos_guias_devolucion_id')
-            ->where('gd.asesor_id', $asesor_id)
-            ->where('gd.pro_codigo', $pro_codigo)
-            ->where('gd.periodo_id', $periodo_id)
-            ->where('d.estado', '1')
-            ->sum('gd.cantidad_devuelta') ?? 0;
-    }
-    
-    public function tr_cantidadDevueltaPendiente($asesor_id, $pro_codigo, $periodo_id) {
-        return DB::table('pedidos_guias_devolucion_detalle as gd')
-            ->leftJoin('pedidos_guias_devolucion as d', 'd.id', '=', 'gd.pedidos_guias_devolucion_id')
-            ->where('gd.asesor_id', $asesor_id)
-            ->where('gd.pro_codigo', $pro_codigo)
-            ->where('gd.periodo_id', $periodo_id)
-            ->where('d.estado', '0')
-            ->sum('gd.cantidad_devuelta') ?? 0;
+
+    public function tr_cantidadDevueltaGuias($asesor_id, $pro_codigo, $periodo_id) {
+        $query = DB::SELECT("SELECT
+            -- Cantidades PENDIENTES (estado 0)
+            SUM(CASE WHEN d.estado = 0 THEN gd.cantidad_devuelta ELSE 0 END) AS cantidad_devuelta_pedidos_pendiente,
+            SUM(CASE WHEN d.estado = 0 THEN gd.cantidad_devuelta_codigoslibros ELSE 0 END) AS cantidad_devuelta_codigoslibros_pendiente,
+
+            -- Cantidades APROBADAS (estado 1)
+            SUM(CASE WHEN d.estado = 1 THEN gd.cantidad_devuelta ELSE 0 END) AS cantidad_devuelta_pedidos_aprobada,
+            SUM(CASE WHEN d.estado = 1 THEN gd.cantidad_devuelta_codigoslibros ELSE 0 END) AS cantidad_devuelta_codigoslibros_aprobada
+
+        FROM pedidos_guias_devolucion_detalle gd
+        LEFT JOIN pedidos_guias_devolucion d
+            ON d.id = gd.pedidos_guias_devolucion_id
+        WHERE gd.asesor_id = '$asesor_id'
+        AND gd.periodo_id = '$periodo_id'
+        AND gd.pro_codigo = '$pro_codigo';
+
+        ");
+        foreach ($query as $key => $value) {
+            //devuelto_pedidos_codigoslibros_total
+            $value->devuelto_pedidos_codigoslibros_total = $value->cantidad_devuelta_pedidos_aprobada + $value->cantidad_devuelta_codigoslibros_aprobada;
+            //devuelto_pedidos_total
+            $value->devuelto_pedidos_total = $value->cantidad_devuelta_pedidos_aprobada;
+            //devuelto_codigoslibros_total
+            $value->devuelto_codigoslibros_total = $value->cantidad_devuelta_codigoslibros_aprobada;
+            //devuelto_total_pendiente
+            $value->devuelto_total_pendiente = $value->cantidad_devuelta_pedidos_pendiente + $value->cantidad_devuelta_codigoslibros_pendiente;
+        }
+        return $query;
     }
 }

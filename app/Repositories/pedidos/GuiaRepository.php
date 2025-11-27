@@ -2,6 +2,7 @@
 namespace App\Repositories\pedidos;
 
 use App\Models\_14Producto;
+use App\Models\_14ProductoStockHistorico;
 use App\Models\DetalleVentas;
 use App\Models\f_tipo_documento;
 use App\Models\PedidoHistoricoActas;
@@ -10,12 +11,15 @@ use App\Models\Pedidos_val_area_new;
 use App\Models\PedidoValArea;
 use App\Models\Ventas;
 use App\Repositories\BaseRepository;
+use App\Repositories\Codigos\CodigosRepository;
 use DB;
 class  GuiaRepository extends BaseRepository
 {
-    public function __construct(Pedidos $pedidoRepository)
+    protected $codigoRepository;
+    public function __construct(Pedidos $pedidoRepository, CodigosRepository $codigoRepository)
     {
         parent::__construct($pedidoRepository);
+        $this->codigoRepository = $codigoRepository;
     }
        /**
      * Obtener la secuencia según la empresa.
@@ -132,7 +136,7 @@ class  GuiaRepository extends BaseRepository
         }
     }
     //actualizar stock
-    public function actualizarStockFacturacion($arregloCodigos, $codigo_ven, $empresa_id,$tipo,$id_pedido)
+    public function actualizarStockFacturacion($arregloCodigos, $codigo_ven, $empresa_id,$tipo,$id_pedido,$user_created)
     {
         //tipo  0 => padre; 1 => pendientes
         $contador = 0;
@@ -144,7 +148,8 @@ class  GuiaRepository extends BaseRepository
 
         try {
             DB::beginTransaction(); // Iniciar transacción
-
+            $arrayOldValuesStock = [];
+            $arrayNewValuesStock = [];
             foreach ($arregloCodigos as $item) {
                 // Validación de item
                 if (!isset($item->codigo, $item->codigoFact, $item->valorNew, $item->cantidad_pendiente)) {
@@ -174,22 +179,33 @@ class  GuiaRepository extends BaseRepository
                 if($nuevoStockReserva < 0 || $nuevoStockEmpresa < 0){
                     throw new \Exception("No hay stock suficiente para el producto {$item->codigoFact}");
                 }
+                // old values STOCK
+                $oldValuesStock    = $this->codigoRepository->save_historicoStockOld($item->codigoFact);
                 // Actualizar stock
                 _14Producto::updateStock($item->codigoFact, $empresa_id, $nuevoStockReserva, $nuevoStockEmpresa);
-
-                // Guardar histórico
-                PedidoHistoricoActas::create([
-                    'cantidad'                  => $cantidadDescontar,
-                    'ven_codigo'                => $codigo_ven,
-                    'pro_codigo'                => $item->codigo,
-                    'stock_anterior'            => $stockAnteriorReserva,
-                    'nuevo_stock'               => $nuevoStockReserva,
-                    'stock_anterior_empresa'    => $stockEmpresa,
-                    'nuevo_stock_empresa'       => $nuevoStockEmpresa,
-                    'id_pedido'                 => $id_pedido,
-                ]);
+                // new values STOCK
+                $newValuesStock          = $this->codigoRepository->save_historicoStockNew($item->codigoFact);
+                $arrayOldValuesStock[]   = $oldValuesStock;
+                $arrayNewValuesStock[]   = $newValuesStock;
                 $contador++;
-            }
+            }//END FOREACH
+            //======================================actualizar historico stock=======================
+                // Agrupar oldValues por pro_codigo, tomando el último valor
+                $groupedOldValues = $this->agruparPorCodigoPrimerValor($arrayOldValuesStock);
+                $groupedNewValues = $this->agruparPorCodigo($arrayNewValuesStock);
+                // Historico
+                if(count($groupedOldValues) > 0){
+                    _14ProductoStockHistorico::insert([
+                        'psh_old_values'                        => json_encode($groupedOldValues),
+                        'psh_new_values'                        => json_encode($groupedNewValues),
+                        'psh_tipo'                              => 13,
+                        'id_pedido_guias'                       => $id_pedido,
+                        'user_created'                          => $user_created,
+                        'created_at'                            => now(),
+                        'updated_at'                            => now(),
+                    ]);
+                }
+            //=======================================================================================
 
             DB::commit(); // Confirmar transacción
 
@@ -199,6 +215,50 @@ class  GuiaRepository extends BaseRepository
             return ["status" => "0", "message" => "Error: " . $e->getMessage()];
         }
     }
+
+    public function agruparPorCodigo($arrayOldValues) {
+        $grouped = [];
+
+        foreach ($arrayOldValues as $item) {
+            $codigo = $item['pro_codigo'];
+
+            // Reemplazamos el registro completo con el último valor para este pro_codigo
+            $grouped[$codigo] = [
+                'pro_codigo' => $codigo,
+                'pro_reservar' => $item['pro_reservar'],
+                'pro_stock' => $item['pro_stock'],
+                'pro_stockCalmed' => $item['pro_stockCalmed'],
+                'pro_deposito' => $item['pro_deposito'],
+                'pro_depositoCalmed' => $item['pro_depositoCalmed']
+            ];
+        }
+
+        // Convertimos el array asociativo a un array indexado
+        return array_values($grouped);
+    }
+    public function agruparPorCodigoPrimerValor($arrayOldValues) {
+        $grouped = [];
+
+        foreach ($arrayOldValues as $item) {
+            $codigo = $item['pro_codigo'];
+
+            // Solo asignamos el registro si no existe ya para este pro_codigo
+            if (!isset($grouped[$codigo])) {
+                $grouped[$codigo] = [
+                    'pro_codigo' => $codigo,
+                    'pro_reservar' => $item['pro_reservar'],
+                    'pro_stock' => $item['pro_stock'],
+                    'pro_stockCalmed' => $item['pro_stockCalmed'],
+                    'pro_deposito' => $item['pro_deposito'],
+                    'pro_depositoCalmed' => $item['pro_depositoCalmed']
+                ];
+            }
+        }
+
+        // Convertimos el array asociativo a un array indexado
+        return array_values($grouped);
+    }
+
     public function crearVenta($codigo_ven, $id_empresa, $id_periodo, $user_created, $idPadre)
     {
         try {

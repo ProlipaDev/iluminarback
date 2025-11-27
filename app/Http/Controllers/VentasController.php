@@ -1706,6 +1706,9 @@ class VentasController extends Controller
                     $venta->ven_fecha = $request->ven_fecha;
                     $venta->user_created = $request->user_created;
                     $venta->updated_at = now();
+                    // Agregar campos de facturación cruzada
+                    $venta->factura_cruzada = $request->factura_cruzada ?? 0;
+                    $venta->empresa_cruzada = $request->empresa_cruzada;
                     $venta->save();
 
                     // Actualizar secuencial solo si la venta se guardó exitosamente
@@ -1871,10 +1874,10 @@ class VentasController extends Controller
             ->where('fv.idtipodoc', 1)
             ->where('fv.est_ven_codigo', '<>', 3)
             ->get();
-    
+
         return response()->json($ventas);
     }
-    
+
     public function getAllPrefacturasNotas(Request $request) {
         $ventas = DB::table('f_venta as fv')
             ->join('empresas as e', 'fv.id_empresa', '=', 'e.id')
@@ -1950,15 +1953,30 @@ class VentasController extends Controller
             'periodo' => 'required|integer',
         ]);
 
-        // Ejecutar la consulta
+        $empresa = $request->empresa;
+
         $resultados = DB::table('f_venta_agrupado as fva')
             ->join('f_detalle_venta_agrupado as fdva', 'fva.id_factura', '=', 'fdva.id_factura')
             ->join('usuario as u', 'u.idusuario', '=', 'fva.ven_cliente')
             ->select('fdva.pro_codigo', DB::raw('SUM(fdva.det_ven_cantidad) as det_ven_cantidad'))
             ->where('u.cedula', $request->cedula)
-            ->where('fva.id_empresa', $request->empresa)
             ->where('fva.periodo_id', $request->periodo)
-            ->where('fva.est_ven_codigo',0)
+            ->where('fva.est_ven_codigo', 0)
+            ->where(function ($q) use ($empresa) {
+                $q->where(function ($sub) use ($empresa) {
+                    // Facturas de la empresa actual que NO son cruzadas
+                    $sub->where('fva.id_empresa', $empresa)
+                        ->where(function ($s) {
+                            $s->whereNull('fva.factura_cruzada')
+                            ->orWhere('fva.factura_cruzada', 0);
+                        });
+                })
+                ->orWhere(function ($sub) use ($empresa) {
+                    // Facturas de otras empresas cruzadas hacia la actual
+                    $sub->where('fva.factura_cruzada', 1)
+                        ->where('fva.empresa_cruzada', $empresa);
+                });
+            })
             ->groupBy('fdva.pro_codigo')
             ->get();
 
@@ -1968,7 +1986,7 @@ class VentasController extends Controller
 
     public function Get_PREFactura(Request $request){
         $query = DB::SELECT("SELECT dv.det_ven_codigo, dv.pro_codigo, dv.det_ven_dev, dv.det_ven_cantidad , dv.det_ven_valor_u,
-        l.descripcionlibro, ls.nombre, s.nombre_serie, ls.id_serie, a.area_idarea, ls.year, fv.periodo_id, l.idlibro FROM f_detalle_venta as dv
+        l.descripcionlibro, ls.nombre, s.nombre_serie, ls.id_serie, a.area_idarea, ls.year, fv.periodo_id, l.idlibro,fv.ven_desc_por FROM f_detalle_venta as dv
         INNER JOIN f_venta as fv ON dv.ven_codigo=fv.ven_codigo
         INNER JOIN libros_series as ls ON dv.pro_codigo=ls.codigo_liquidacion
         INNER JOIN series as s ON ls.id_serie=s.id_serie
@@ -2099,14 +2117,26 @@ class VentasController extends Controller
         if($request->GetReportePedidosPagos)            { return $this->GetReportePedidosPagos($request); }
         if($request->GetReportePorLibro)                { return $this->GetReportePorLibro($request); }
         if($request->getReportePedidoPorFechas)         { return $this->getReportePedidoPorFechas($request); }
+        if($request->getDespachosDocumentosVentas)      { return $this->getDespachosDocumentosVentas($request); }
     }
 
     //api:get/metodosGetVentas?GetReportePedidosPagos=1&periodo=25
     public function GetReportePedidosPagos(Request $request){
         $periodo = $request->input('periodo');
+        $tipoVenta = $request->input('tipoVenta','3'); //1 => directa; 2 => lista; 3 => todas
         if (!$periodo) {
             return response()->json(['status' => '0', 'message' => 'Faltan parámetros'], 200);
         }
+        $condicion = "";
+        if($tipoVenta == 3){
+
+        }else{
+            // si trae valores a incluir
+            $condicion = "AND (
+                p.tipo_venta = $tipoVenta
+            )";
+        }
+
        $query = DB::SELECT("SELECT
 
             p.id_institucion,
@@ -2114,6 +2144,7 @@ class VentasController extends Controller
             p.id_pedido,
             CONCAT(u.nombres,' ', u.apellidos) AS asesor,
             i.nombreInstitucion,
+            i.ruc,
             CASE
                 WHEN i.punto_venta = 1 THEN 'SI'
                 ELSE 'NO'
@@ -2167,6 +2198,7 @@ class VentasController extends Controller
             AND p.estado = '1'
             AND p.tipo = '0'
             AND p.contrato_generado IS NOT NULL
+            $condicion
             ORDER BY i.nombreInstitucion ASC
         ");
 
@@ -2194,6 +2226,13 @@ class VentasController extends Controller
             }
             $q->if_distribuidor = $if_distribuidor; // Asignar el valor a la propiedad
             $q->EsDistribuidor = $if_distribuidor == 1 ? 'SI' : 'NO';
+            // traer los beneficiarios
+            $getBeneficiarios = DB::SELECT("SELECT CONCAT(u.nombres,' ',u.apellidos) AS beneficiario, u.cedula
+            FROM pedidos_beneficiarios b
+            LEFT JOIN usuario u ON u.idusuario = b.id_usuario
+            WHERE b.id_pedido ='$q->id_pedido'
+            ");
+            $q->beneficiarios = $getBeneficiarios;
         }
 
         return $query;
@@ -2341,7 +2380,6 @@ class VentasController extends Controller
 
         // Si el periodo es menor o igual al configurado -> usa pedidos viejos
         $nuevo = ($periodo <= $this->tr_periodoPedido) ? 0 : 1;
-
         if($nuevo == 0){
             $getPedidos = $this->pedidosRepository->pedidosAnteriorXLibroSinAlcances($periodo);
             $getAlcances = $this->pedidosRepository->alcancesAnteriorXlibros($periodo);
@@ -2455,7 +2493,6 @@ class VentasController extends Controller
         if($tipoVenta == 3){
             $arrayDespachoBodega = $this->ventasRepository->getDespachoBodegaTodo($periodo, $tipoInstitucionIncluir);
         }
-
         foreach ($arrayDespachoBodega as $row) {
             // Asegúrate de tratar objetos
             $codigo = is_object($row) ? $row->codigo_liquidacion : $row['codigo_liquidacion'];
@@ -2539,6 +2576,59 @@ class VentasController extends Controller
         return response()->json($pedidos, 200);
     }
 
+    //api:get/metodosGetVentas?getDespachosDocumentosVentas=1&periodo=27
+    public function getDespachosDocumentosVentas(Request $request){
+        $periodo = $request->input('periodo');
+        if (!$periodo) {
+            return response()->json(['status' => '0', 'message' => 'Faltan parámetros'], 200);
+        }
+        $query = DB::SELECT("SELECT
+                SUM(precio) AS total_precio,
+                SUM(valor_neto) AS total_valor_neto
+            FROM (
+                SELECT
+                    CASE
+                        WHEN c.estado_liquidacion = 2 THEN 0
+                        WHEN c.plus = 1 THEN 29.90
+                        ELSE fp.pfn_pvp
+                    END AS precio,
+                    CASE
+                        WHEN
+                            (CASE
+                                WHEN c.estado_liquidacion = 2 THEN 0
+                                WHEN c.plus = 1 THEN 29.90
+                                ELSE fp.pfn_pvp
+                            END) = 0
+                        THEN 0
+                        ELSE
+                            (CASE
+                                WHEN c.estado_liquidacion = 2 THEN 0
+                                WHEN c.plus = 1 THEN 29.90
+                                ELSE fp.pfn_pvp
+                            END) - (
+                                (CASE
+                                    WHEN c.estado_liquidacion = 2 THEN 0
+                                    WHEN c.plus = 1 THEN 29.90
+                                    ELSE fp.pfn_pvp
+                                END) * (v.ven_desc_por / 100)
+                            )
+                    END AS valor_neto
+                FROM codigoslibros c
+                LEFT JOIN pedidos_formato_new fp
+                    ON fp.idlibro = c.libro_idlibro
+                AND fp.idperiodoescolar = '$periodo'
+                LEFT JOIN f_venta v
+                    ON v.ven_codigo = c.codigo_proforma
+                AND v.id_empresa = c.proforma_empresa
+                WHERE c.bc_periodo = '$periodo'
+                AND c.estado_liquidacion IN (0,1,2)
+                AND c.codigo_proforma IS NOT NULL
+                AND (c.combo IS NULL OR  c.codigo_combo IS null)
+                AND c.prueba_diagnostica = '0'
+            ) AS sub;
+        ");
+        return $query;
+    }
 
     //api:get/metodosGetVentas?getComboDetalleVenta=1&id_empresa=1&ven_codigo=PF-S24-FR-0000192
     public function getProductoDetalleVenta(Request $request) {
@@ -2739,6 +2829,17 @@ class VentasController extends Controller
                         WHERE a.abono_estado = 0
                         AND a.abono_periodo = '$item->idperiodoescolar'
                         ) AS totalCobrado,
+                         
+                        (SELECT SUM(a.abono_facturas + a.abono_notas)
+                        FROM abono a
+                        WHERE a.abono_estado = 0
+                        AND a.abono_empresa=1
+                        AND a.abono_periodo = '$item->idperiodoescolar') AS totalCobradoProlipa,
+                        (SELECT SUM(a.abono_facturas + a.abono_notas)
+                        FROM abono a
+                        WHERE a.abono_estado = 0
+                        AND a.abono_empresa=3
+                        AND a.abono_periodo = '$item->idperiodoescolar') AS totalCobradoCalmed,
 
                         (SELECT
                             (
@@ -5271,6 +5372,59 @@ public function ReporteContratos23_24(){
             ->get();
 
         return response()->json($contratos);
+    }
+
+    /**
+     * Consultar stock de libros por códigos de productos
+     * @param Request $request
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function consultarStockLibros(Request $request)
+    {
+        try {
+            // Validar que se envíen los códigos
+            $codigos = $request->input('codigos', []);
+            
+            if (empty($codigos)) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'No se proporcionaron códigos de productos'
+                ], 400);
+            }
+            
+            // Si viene como string separado por comas, convertir a array
+            if (is_string($codigos)) {
+                $codigos = explode(',', $codigos);
+            }
+            
+            // Limpiar y normalizar los códigos
+            $codigos = array_map('trim', $codigos);
+            $codigos = array_filter($codigos); // Eliminar valores vacíos
+            
+            if (empty($codigos)) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'No se proporcionaron códigos válidos'
+                ], 400);
+            }
+            
+            // Consultar stock de los productos
+            $productos = DB::table('1_4_cal_producto')
+                ->whereIn('pro_codigo', $codigos)
+                ->select('pro_codigo', 'pro_reservar', 'pro_stock', 'pro_nombre', 'pro_estado')
+                ->get();
+            
+            return response()->json([
+                'status' => 'success',
+                'data' => $productos
+            ], 200);
+            
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Error al consultar el stock: ' . $e->getMessage()
+            ], 500);
+        }
     }
 
 }

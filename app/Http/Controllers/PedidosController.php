@@ -593,7 +593,8 @@ class PedidosController extends Controller
         //actualizar beneficiarios
         DB::table('pedidos_beneficiarios')
         ->where('id_pedido', $pedidoAnterior)
-        ->update(['id_pedido' => $pedidoNuevo]);
+        ->where('estado', '0')
+        ->update(['id_pedido' => $pedidoNuevo,'estado' => '1']);
         //actualizar libros
         DB::table('pedidos_val_area')
         ->where('id_pedido', $pedidoAnterior)
@@ -882,6 +883,7 @@ class PedidosController extends Controller
         $fechaActual = date('Y-m-d H:i:s');
         DB::table('pedidos')
         ->where('id_pedido', $id_pedido)
+        ->where('estado', '0')
         ->update([
             'fecha_creacion_pedido' => $fechaActual
         ]);
@@ -977,8 +979,11 @@ class PedidosController extends Controller
             if($contrato == "null" || $contrato == null || $contrato == "undefined" ||  $contrato == "" ){
             }else{
                 DB::UPDATE("UPDATE temporadas SET estado = '0' WHERE contrato ='$contrato'");
-
             }
+            //los beneficiarios pasan a estado 0
+            DB::table('pedidos_beneficiarios')
+            ->where('id_pedido', $id_pedido)
+            ->update(['estado' => 0]);
         } catch (\Exception  $ex) {
             return ["status" => "0","message" => "Hubo problemas en el proceso".$ex];
         }
@@ -2210,6 +2215,7 @@ class PedidosController extends Controller
             LEFT JOIN usuario ub ON b.id_usuario = ub.idusuario
             WHERE b.id_pedido = p.id_pedido
             AND b.id_beneficiario_pedido = '$beneficiario'
+            AND b.estado = '1'
             LIMIT 1
         ) as beneficiario,
         (
@@ -2218,6 +2224,7 @@ class PedidosController extends Controller
             LEFT JOIN usuario ub ON b.id_usuario = ub.idusuario
             WHERE b.id_pedido = p.id_pedido
             AND b.id_beneficiario_pedido = '$beneficiario'
+            AND b.estado = '1'
             LIMIT 1
         ) as beneficiario_cedula,
         (
@@ -2226,6 +2233,7 @@ class PedidosController extends Controller
             LEFT JOIN usuario ub ON b.id_usuario = ub.idusuario
             WHERE b.id_pedido = p.id_pedido
             AND b.id_beneficiario_pedido = '$beneficiario'
+            AND b.estado = '1'
             LIMIT 1
         ) as beneficiario_nombres,
         (
@@ -2234,6 +2242,7 @@ class PedidosController extends Controller
             LEFT JOIN usuario ub ON b.id_usuario = ub.idusuario
             WHERE b.id_pedido = p.id_pedido
             AND b.id_beneficiario_pedido = '$beneficiario'
+            AND b.estado = '1'
             LIMIT 1
         ) as beneficiario_apellidos,
         CONCAT(uf.apellidos, ' ',uf.nombres) as facturador
@@ -2298,6 +2307,7 @@ class PedidosController extends Controller
             LEFT JOIN usuario ub ON b.id_usuario = ub.idusuario
             WHERE b.id_pedido = '$pedido'
             AND b.id_beneficiario_pedido = '$beneficiario'
+            AND b.estado = '1'
             LIMIT 1
             ");
             $pagoConvenio = 0;
@@ -2423,7 +2433,9 @@ class PedidosController extends Controller
         CONCAT(u.nombres, ' ', u.apellidos, ' ',  b.comision ,'%') as beneficiarioComision
         FROM pedidos_beneficiarios b
         INNER JOIN usuario u ON b.id_usuario = u.idusuario
-        WHERE b.id_pedido = $pedido");
+        WHERE b.id_pedido = $pedido
+        AND b.estado = '1'
+        ");
         return $beneficiarios;
     }
 
@@ -2630,100 +2642,14 @@ class PedidosController extends Controller
           $docente = DB::SELECT("SELECT cedula FROM `usuario` WHERE `idusuario` = ?", [$request->idusuario]);
           // generar cli_ins_codigo
           $asesor = DB::SELECT("SELECT iniciales FROM `usuario` WHERE `idusuario` = ?", [$request->id_asesor]);
-          $institucion = DB::SELECT("SELECT codigo_institucion_milton FROM `institucion` WHERE `idInstitucion` = ?", [$request->institucion]);
 
-         // SE VERIFICA QUE NO ESTE YA CREADO EL CLI INS CODIGO
-        //  $verif_cli_ins_cod = DB::SELECT("SELECT * FROM `pedidos_asesor_institucion_docente`
-        //  WHERE `id_asesor` = ? AND `id_institucion` = ? AND `id_docente` = ?",
-        //  [$asesor[0]->iniciales, $institucion[0]->codigo_institucion_milton, $docente[0]->cedula]);
-        //  if( count($verif_cli_ins_cod) == 0){
-        //     //====Crear cedula en facturacion si no existe=====
-        //     try {
-        //         $dato = Http::get("http://186.4.218.168:9095/api/f_Cliente/Busquedaxclici?cli_ci=".$cedula);
-        //         $JsonCedula = json_decode($dato, true);
-        //         // return $JsonCedula;
-        //         if(isset($JsonCedula["clientexclici"])){
-        //             $arrayUser = $JsonCedula["clientexclici"][0];
-        //             //variables
-        //             $cliDireccion         = $arrayUser["cliDireccion"];
-        //             $cliCredito           = $arrayUser["cliCredito"];
-        //             $cliPlazo             = $arrayUser["cliPlazo"];
-        //             $cliAlias             = $arrayUser["cliAlias"];
-        //             $cliCelular           = $arrayUser["cliCelular"];
-        //             $cliFechaNacimiento   = $arrayUser["cliFechaNacimiento"];
-        //             $venDCodigo           = $arrayUser["venDCodigo"];
-        //             $cliTitulo            = $arrayUser["cliTitulo"];
-        //             //edito
-        //             $form_data = [
-        //                 'cliCi'                 => $cedula,
-        //                 'cliApellidos'          => $apellidos,
-        //                 'cliNombres'            => $nombres,
-        //                 'cliDireccion'          => $cliDireccion,
-        //                 'cliTelefono'           => $telefono,
-        //                 'cliEmail'              => $email,
-        //                 'cliCredito'            => $cliCredito,
-        //                 'cliPlazo'              => $cliPlazo,
-        //                 'cliAlias'              => $cliAlias,
-        //                 'cliCelular'            => $cliCelular,
-        //                 'cliFechaNacimiento'    => $cliFechaNacimiento,
-        //                 'venDCodigo'            => $venDCodigo,
-        //                 'cliTitulo'             => $cliTitulo
-        //             ];
-        //             //return $form_data;
-        //             $dato = Http::post("http://186.4.218.168:9095/api/f_Cliente", $form_data);
-        //             $prueba_post = json_decode($dato, true);
-        //         }else{
-        //             //no se encontro lo creo
-        //             $form_data = [
-        //                 'cli_ci'        => $cedula,
-        //                 'cli_apellidos' => $apellidos,
-        //                 'cli_nombres'   => $nombres,
-        //                 'cli_direccion' => null,
-        //                 'cli_telefono'  => $telefono,
-        //                 'cli_email'     => $email
-        //             ];
-        //             $client = Http::post('http://186.4.218.168:9095/api/Cliente', $form_data);
-        //             $JsonCliente = json_decode($client, true);
-        //         }
-        //     } catch (\Exception  $ex) {
-        //     return ["status" => "0","message" => "Hubo problemas con la conexión al servidor"];
-        //     }
-        // }
-        //====Fin Crear cedula en facturacion si no existe====
-        //validar que el pedido no este con contrato
-        $validate = DB::SELECT("SELECT * FROM pedidos
-        WHERE id_pedido = '$request->id_pedido'
-        AND (contrato_generado IS NULL OR contrato_generado = '')
-        ");
-        // if(empty($validate)){return response()->json(['pedido' => '', 'error' => "Error no se puedo modificar un pedido que ya tiene contrato"]);}
-        $concontrato = 0;
-        if(empty($validate)){
-            $concontrato = 1;
-            // return response()->json(['pedido' => '', 'error' => "Error no se puedo modificar un pedido que ya tiene contrato"]);
-        }
+
         //validar que el pedido no este anulado
         $validate2 = DB::SELECT("SELECT * FROM pedidos
         WHERE id_pedido = '$request->id_pedido'
-        AND (estado = '0' OR estado = '1')
+        AND estado = '2'
         ");
-        if(empty($validate2)){return response()->json(['pedido' => '', 'error' => "Error no se puedo modificar un pedido que esta anulado"]);}
-
-        // if( count($verif_cli_ins_cod) == 0){
-        //     // SE GENERA EL CLI INS CODIGO EN BASE DE MILTON
-        //     $form_data = [
-        //         'cli_ci'       => $docente[0]->cedula,
-        //         'ins_codigo'   => intval($institucion[0]->codigo_institucion_milton),
-        //         'ven_d_codigo' => $asesor[0]->iniciales,
-        //     ];
-        //     $cliente_escuela = Http::post('http://186.4.218.168:9095/api/ClienteEscuela', $form_data);
-        //     $json_cliente_escuela = json_decode($cliente_escuela, true);
-        //     if( $json_cliente_escuela ){
-        //     // SE GUARDA EN BASE PROLIPA EL CLI INS CODIGO GENERADO
-        //         DB::INSERT("INSERT INTO `pedidos_asesor_institucion_docente`(`cli_ins_codigo`, `id_asesor`, `id_institucion`, `id_docente`) VALUES (?,?,?,?)", [$json_cliente_escuela['cli_ins_codigo'], $asesor[0]->iniciales, $institucion[0]->codigo_institucion_milton, $docente[0]->cedula]);
-        //     }else{
-        //         return response()->json(['pedido' => '', 'error' => "No se pudo generar el cli_ins_codigo, comuníquese con soporte. Datos enviados, cedula: ".$docente[0]->cedula." ins_codigo: ". intval($institucion[0]->codigo_institucion_milton) . " vendedor: " . $asesor[0]->iniciales]);
-        //     }
-        // }
+        if(count($validate2) > 0){return response()->json(['pedido' => '', 'error' => "Error no se puedo modificar un pedido que esta anulado"]);}
         if( $request->id_beneficiario > 0){
             //usuario
             $usuario = Usuario::findOrFail($request->idusuario);
@@ -2731,35 +2657,26 @@ class PedidosController extends Controller
             $usuario->apellidos = $request->apellidos;
             $usuario->email     = $request->correo;
             $usuario->save();
-            //if($concontrato == 0){
-                //usuario
-                // $usuario = Usuario::findOrFail($request->idusuario);
-                // $usuario->nombres   = $request->nombres;
-                // $usuario->apellidos = $request->apellidos;
-                // $usuario->save();
-            //}
-            //beneficiario
+
             $beneficiario = Beneficiarios::find($request->id_beneficiario);
+            $verificado   = $beneficiario->verificado;
+            if($verificado == 1){
+                return response()->json(['pedido' => '', 'error' => "No se puede modificar un beneficiario verificado"]);
+            }
         }else{
-            $beneficiario = new Beneficiarios();
+            $beneficiario                   = new Beneficiarios();
         }
-        $beneficiario->id_pedido = $request->id_pedido;
-        $beneficiario->id_usuario = $request->idusuario;
-        $beneficiario->tipo_identificacion = $request->tipo_identificacion;
-        $beneficiario->direccion = $request->direccion;
-        $beneficiario->comision = $request->comision;
+        $beneficiario->id_pedido            = $request->id_pedido??null;
+        $beneficiario->id_usuario           = $request->idusuario;
+        $beneficiario->tipo_identificacion  = $request->tipo_identificacion;
+        $beneficiario->direccion            = $request->direccion;
+        $beneficiario->comision             = $request->comision;
         //banco
-        if($request->banco == null || $request->banco == "null" || $request->banco == ""){
-            $beneficiario->banco = null;
-        }else{
-            $beneficiario->banco = $request->banco;
-        }
+        if($request->banco == null || $request->banco == "null" || $request->banco == ""){ $beneficiario->banco = null; }
+        else{ $beneficiario->banco = $request->banco; }
         //tipo de cuenta
-        if($request->tipo_cuenta == null || $request->tipo_cuenta == "null" || $request->tipo_cuenta == ""){
-            $beneficiario->tipo_cuenta = null;
-        }else{
-            $beneficiario->tipo_cuenta = $request->tipo_cuenta;
-        }
+        if($request->tipo_cuenta == null || $request->tipo_cuenta == "null" || $request->tipo_cuenta == ""){ $beneficiario->tipo_cuenta = null; }
+        else{ $beneficiario->tipo_cuenta = $request->tipo_cuenta; }
         //num_cuenta
         if($request->num_cuenta == null || $request->num_cuenta == "null" || $request->num_cuenta == ""){
             $beneficiario->num_cuenta = null;
@@ -2767,17 +2684,17 @@ class PedidosController extends Controller
             $beneficiario->num_cuenta = $request->num_cuenta;
         }
         //observacion
-        if($request->observacion == null || $request->observacion == "null" || $request->observacion == ""){
-            $beneficiario->observacion = null;
-        }else{
-            $beneficiario->observacion = $request->observacion;
-        }
-        $beneficiario->correo = $request->correo;
-        $beneficiario->valor = $request->valor;
+        if($request->observacion == null || $request->observacion == "null" || $request->observacion == ""){ $beneficiario->observacion = null; }
+        else{ $beneficiario->observacion = $request->observacion;}
+        $beneficiario->correo           = $request->correo;
+        $beneficiario->valor            = $request->valor;
+        $beneficiario->idperiodoescolar = $request->idperiodoescolar;
+        $beneficiario->idInstitucion    = $request->idInstitucion;
         $beneficiario->save();
         //obtener los beneficiarios del pedidos
         $query = DB::SELECT("SELECT * FROM pedidos_beneficiarios b
         WHERE id_pedido = '$request->id_pedido'
+        AND b.estado = '1'
         ");
         //si hay beneficiarios uso el primero
         if(count($query) > 0){
@@ -2786,17 +2703,17 @@ class PedidosController extends Controller
             DB::UPDATE("UPDATE pedidos SET id_responsable  = '$primerBeneficiario' WHERE id_pedido = '$request->id_pedido'");
         }
         //Actualizar fecha creacion del pedido
-        if($request->id_group == 11){
+        if($request->id_group == 11 && $request->id_pedido > 0){
             $this->UpdateFechaCreacionPedido($request->id_pedido);
         }
         return $beneficiario;
     }
     public function eliminar_beneficiario_pedido(Request $request){
-        //validate si tiene contrato
-        // $query = DB::SELECT("SELECT * FROM pedidos where id_pedido = '$request->id_pedido' AND contrato_generado  IS NOT NULL");
-        // if(count($query)){
-        //     return ["status" => "0", "message" => "No se puede eliminar un beneficiarios con contrato"];
-        // }
+        // validar si tiene verificado 1 no se puede eliminar
+        $dataBenificario = Beneficiarios::find($request->id_beneficiario);
+        if($dataBenificario->verificado == 1){
+            return response()->json(['status' => '0', 'message' => "No se puede eliminar un beneficiario verificado"]);
+        }
         DB::SELECT("DELETE FROM `pedidos_beneficiarios` WHERE `id_beneficiario_pedido` = $request->id_beneficiario");
     }
     public function save_beneficiarios_db_milton(Request $request){
@@ -3040,11 +2957,119 @@ class PedidosController extends Controller
                 "comisionReal"              => $comisionReal,
                 "totalVenta"                => $totalVenta,
                 "valorComisionReal"         => ($ventaReal * $comisionReal)/100,
-                "total_alcances"            => $query2[0]->total_alcance  == null ? 0: $query2[0]->total_alcance
+                "total_alcances"            => $query2[0]->total_alcance  == null ? 0: $query2[0]->total_alcance,
+                "verificado"                => $item->verificado,
+                "fecha_verificacion"        => $item->fecha_verificacion,
+                "usuarioVerificado"         => $item->usuarioVerificado
             ];
         }
         return $datos;
     }
+
+    //api:get/getBeneficiariosXPeriodoInstitucion/27/1331
+    public function getBeneficiariosXPeriodoInstitucion($periodo,$institucion){
+        // buscar pedido
+        $tipo  = 0;
+        $idVerificacion = 0;
+        $searchPedido = DB::SELECT("SELECT * FROM pedidos p
+            WHERE p.estado  ='1'
+            AND p.id_institucion = '$institucion'
+            AND p.id_periodo = '$periodo'
+        ");
+        // //  // si no existe pedido
+        // $query = $this->tr_getAllBeneficiariosPeriodoInstitucion($periodo,$institucion);
+        // return $query;
+        // si existe pedido coloco en los beneficiarios
+        if(count($searchPedido) > 0){
+            $id_pedido = $searchPedido[0]->id_pedido;
+            DB::table('pedidos_beneficiarios')
+            ->where('idperiodoescolar', $periodo)
+            ->where('idInstitucion', $institucion)
+            ->where('estado', '1')
+            ->update(['id_pedido' => $id_pedido]);
+        }else{
+            // si no existe pedido
+            $query = $this->tr_getAllBeneficiariosPeriodoInstitucion($periodo,$institucion);
+            return $query;
+        }
+
+        //tipo => VENTA REAL GENERAL; 1 => VENTA REAL POR VERIFICACION
+        $pedido     = $this->getPedido(0,$id_pedido);
+        $query      = $this->getAllBeneficiarios($id_pedido);
+        $datos = [];
+        if(empty($query)){
+            return $query;
+        }
+        $contrato = $query[0]->contrato_generado;
+        $ventaReal = 0;
+        $comisionReal = 0;
+        $totalVenta   = 0;
+        //si no hay valores no hago nada
+        if($contrato == null || $contrato == "null" || $contrato == "" ){
+        }
+        //si hay contrato traigo la venta real -
+        else{
+            try {
+                $comisionReal       = $pedido[0]->descuento;
+                 //tipo => 0 => VENTA REAL GENERAL; 1 => VENTA REAL POR VERIFICACION
+                if($tipo == 1 ){
+                    $getVentaReal       = Verificacion::findOrFail($idVerificacion);
+                    $ventaReal          = $getVentaReal->venta_real;
+                    $totalVenta         = $getVentaReal->totalVenta;
+                }else{
+                    $verificaciones     = $this->getVerificaciones($contrato);
+
+                    foreach($verificaciones as $key => $item){
+                        $ventaReal      = $ventaReal + $item->venta_real;
+                    }
+                }
+            } catch (\Exception  $ex) {
+                return ["status" => "0","message" => "Hubo problemas con la conexión al servidor"];
+            }
+        }
+        foreach($query as $key => $item){
+            //total convenio
+            $query2 = DB::SELECT("SELECT SUM(a.venta_bruta) AS total_alcance
+            FROM pedidos_alcance a
+            WHERE a.id_pedido = '$id_pedido'
+            and a.estado_alcance = '1'
+            and a.venta_bruta > 0
+            ");
+            $datos[$key] = [
+                "id_beneficiario_pedido"    => $item->id_beneficiario_pedido,
+                "id_pedido"                 => $item->id_pedido,
+                "id_usuario"                => $item->id_usuario,
+                "tipo_identificacion"       => $item->tipo_identificacion,
+                "direccion"                 => $item->direccion,
+                "correo"                    => $item->correo,
+                "comision"                  => $item->comision,
+                "valor"                     => $item->valor,
+                "banco"                     => $item->banco,
+                "tipo_cuenta"               => $item->tipo_cuenta,
+                "num_cuenta"                => $item->num_cuenta,
+                "observacion"               => $item->observacion,
+                "created_at"                => $item->created_at,
+                "updated_at"                => $item->updated_at,
+                "beneficiario"              => $item->beneficiario,
+                "cedula"                    => $item->cedula,
+                "nombres"                   => $item->nombres,
+                "apellidos"                 => $item->apellidos,
+                "descuento"                 => $item->descuento,
+                "total_venta"               => $item->total_venta,
+                "ventaReal"                 => $ventaReal,
+                "comisionReal"              => $comisionReal,
+                "totalVenta"                => $totalVenta,
+                "valorComisionReal"         => ($ventaReal * $comisionReal)/100,
+                "total_alcances"            => $query2[0]->total_alcance  == null ? 0: $query2[0]->total_alcance,
+                "verificado"                => $item->verificado,
+                "fecha_verificacion"        => $item->fecha_verificacion,
+                "usuarioVerificado"         => $item->usuarioVerificado
+            ];
+        }
+        return $datos;
+    }
+
+
     public function generar_contrato_pedido($id_pedido, $usuario_fact){
         //limpiar cache
         Cache::flush();
@@ -3407,6 +3432,7 @@ class PedidosController extends Controller
             FROM pedidos_beneficiarios b
             LEFT JOIN usuario u ON b.id_usuario = u.idusuario
             WHERE b.id_pedido = '$item->id_pedido'
+            AND b.estado = '1'
             ");
             $files = DB::SELECT("SELECT * FROM pedidos_files pf
             WHERE pf.id_pedido = '$item->id_pedido'
@@ -4668,105 +4694,111 @@ class PedidosController extends Controller
         ");
         return $query;
     }
+
+    //API:GET/getStockProlipaDevolucion?asesor_id=69366&periodo_id=27
     public function getStockProlipaDevolucion(Request $request){
 
         $periodo                        = $request->periodo_id;
         $id_asesor                      = $request->asesor_id;
-        $guias                          = $this->codigosRepository->getLibrosAsesores($periodo, $id_asesor);
+        $guias                          = [];
         $resultado                      = [];
-        $guiasPedidos                   = collect($guias);
-        $GuiasBodega                    = collect($this->codigosRepository->getCodigosBodega(1, $periodo, 0, $id_asesor));
+        // Si el periodo es menor o igual al configurado -> usa pedidos viejos
+        $nuevo = ($periodo <= $this->tr_periodoPedido) ? 0 : 1;
+          // Pedidos (viejo o nuevo según $nuevo)
+        if ($nuevo == 0) {
+            $guias                       = $this->codigosRepository->guiasXAsesorPeriodoOld($periodo, $id_asesor);
+        } else {
+            $guias                       = $this->codigosRepository->guiasXAsesorPeriodoNew($periodo, $id_asesor);
+        }
+
+        $guiasPedidos = collect($guias);
+        $GuiasBodega  = collect($this->codigosRepository->getCodigosBodega(1, $periodo, 0, $id_asesor));
 
         if ($guiasPedidos->isEmpty()) {
+
+            // Si no hay pedidos, devolver bodega tal cual
             $resultado = $GuiasBodega;
+
         } else {
+
             if ($GuiasBodega->isEmpty()) {
-                $resultado = $guiasPedidos;
+
+                // Si no hay bodega → todos los pedidos con cantidadDisponibleBodega = 0
+                $resultado = $guiasPedidos->map(function($item){
+                    $item->cantidadDisponibleBodega = $item->cantidadDisponibleBodega ?? 0;
+                    $item->cantidadGuiasXPedidos   = $item->cantidadGuiasXPedidos   ?? 0;
+                    return $item;
+                });
+
             } else {
-                $GuiasBodega->map(function($item) use ($guiasPedidos) {
-                    $codigo = $item->codigo;
-                    $existing = $guiasPedidos->firstWhere('codigo', $codigo);
+
+                // Combinar bodega con pedidos sin modificar su estructura
+                $GuiasBodega->each(function($item) use ($guiasPedidos) {
+                    $existing = $guiasPedidos->firstWhere('codigo', $item->codigo);
+
                     if ($existing) {
-                        $existing->valor += $item->valor;
+
+                        // No sumar valor ni cambiar estructura
+                        // Solo actualizar stock de bodega
+                        $existing->cantidadDisponibleBodega = $item->cantidadDisponibleBodega;
+
                     } else {
+
+                        // Si no existe en pedidos, agregarlo tal cual viene de bodega
                         $guiasPedidos->push($item);
                     }
                 });
-                $resultado = $guiasPedidos;
+
+                // Asegurar que todos tengan los campos obligatorios
+                $resultado = $guiasPedidos->map(function($item){
+                    $item->cantidadDisponibleBodega = $item->cantidadDisponibleBodega ?? 0;
+                    $item->cantidadGuiasXPedidos   = $item->cantidadGuiasXPedidos   ?? 0;
+                    return $item;
+                });
             }
         }
 
+
+        // agregar la G adelante de la propiedad codigo
+
+        $resultado = $resultado->map(function($item) {
+            return [
+                "codigo"                    => 'G' . $item->codigo ?? null,
+                "nombrelibro"               => $item->nombrelibro ?? null,
+                "cantidadGuiasXPedidos"     => $item->cantidadGuiasXPedidos ?? 0,
+                "cantidadDisponibleBodega"  => $item->cantidadDisponibleBodega ?? 0,
+            ];
+        });
+        // collecionar a array
+        $resultado = collect($resultado);
         // Agregar pro_codigo al campo codigo y procesar cantidad y stock
         foreach ($resultado as $key => $item) {
-            $resultado[$key]->pro_codigo = $item->codigo;
-            $resultado[$key]->formato    = 0;
-            unset($resultado[$key]->stock);
-            //obtener cantidad devuelta pendiente
-            $getCantidadDevuelta = $this->tr_cantidadDevueltaPendiente($id_asesor, $resultado[$key]->pro_codigo, $periodo);
-            if($getCantidadDevuelta > 0) {
-                $resultado[$key]->formato = (int) $getCantidadDevuelta[0]->cantidad_devuelta;
-            } else {
-                $resultado[$key]->formato = 0;
-            }
-            // Obtener cantidad devuelta
-            $getCantidadDevuelta = $this->tr_cantidadDevuelta($id_asesor, $resultado[$key]->pro_codigo, $periodo);
-            if($getCantidadDevuelta > 0) {
-                $resultado[$key]->cantidad_devuelta = (int) $getCantidadDevuelta;
-            } else {
-                $resultado[$key]->cantidad_devuelta = 0;
-            }
-            // // Asegurar que cantidad es un entero
-            $resultado[$key]->valor = (int) $resultado[$key]->valor;
-            //sumar la $resultado[$key]->cantidad_devuelta +  $resultado[$key]->formato en un campo cantidad_devuelta_total
-            $cantidad_devuelta_total = $resultado[$key]->cantidad_devuelta + $resultado[$key]->formato;
-            // Calcular stockAsesor
-            $resultado[$key]->stockAsesor = $resultado[$key]->valor - $cantidad_devuelta_total;
+            $codigo = $item['codigo'];
+            $cantidadGuiasXPedidos                      = $item['cantidadGuiasXPedidos'];
+            $cantidadDisponibleBodega                   = $item['cantidadDisponibleBodega'];
+            $datosDevolucion                            = $this->tr_cantidadDevueltaGuias($id_asesor, $codigo, $periodo);
+            $devuelto_pedidos_codigoslibros_total       = $datosDevolucion[0]->devuelto_pedidos_codigoslibros_total ?? 0;
+            $devuelto_pedidos_total                     = $datosDevolucion[0]->devuelto_pedidos_total ?? 0;
+            $devuelto_codigoslibros_total               = $datosDevolucion[0]->devuelto_codigoslibros_total ?? 0;
+            $devuelto_total_pendiente                   = $datosDevolucion[0]->devuelto_total_pendiente ?? 0;
+            $cantidadGuiasXPedidosReal                  = $cantidadGuiasXPedidos - $devuelto_pedidos_total;
+            //lo disponible seria la cantidad de guias pedidos - cantidad devuelto en guias en pedidos + codigoslibros en guias
+            $stockAsesor                                = $cantidadGuiasXPedidosReal + $cantidadDisponibleBodega;
+            //la pedido en pedido y bodega = seria lo devuelto en pedidos + devuelto en codigoslibros + lo disponible en bodega + lo real pedido en guias pedidos(descontamos lo devuelto en pedido ya que en codigoslibros si se va y pedidos en guias se mantiene por eso restamos lo devuelto)
+            $cantidadPedidaActual                       = $devuelto_pedidos_total + $devuelto_codigoslibros_total + $cantidadDisponibleBodega + $cantidadGuiasXPedidosReal;
+            $resultado[$key]                    = (object) [
+                    'pro_codigo'                => $codigo,
+                    'nombrelibro'               => "Guia " . $item['nombrelibro'],
+                    'cantidadGuiasXPedidos'     => (int) $cantidadGuiasXPedidos,
+                    'cantidadDisponiblePedido'  => (int) $cantidadGuiasXPedidosReal,
+                    'cantidadDisponibleBodega'  => (int) $cantidadDisponibleBodega,
+                    'stockAsesor'               => (int) $stockAsesor,
+                    'cantidad_devuelta_total'   => (int) $devuelto_pedidos_codigoslibros_total,
+                    'cantidadPedidaActual'      => (int) $cantidadPedidaActual,
+                    'formato'                   => (int) $devuelto_total_pendiente ?? 0,
+            ];
         }
-
         return $resultado;
-
-        // $query = DB::SELECT("SELECT pb.*,l.nombrelibro
-        // FROM pedidos_guias_bodega pb
-        // LEFT JOIN libros_series ls ON pb.pro_codigo = ls.codigo_liquidacion
-        // LEFT JOIN libro l ON ls.idLibro = l.idlibro
-        // WHERE pb.asesor_id = '$request->asesor_id'
-        // ");
-        // return $query;
-        // //get devolucion
-        // $getIdDevolucion = 0;
-        // $query2 = DB::SELECT("SELECT * FROM pedidos_guias_devolucion pd
-        // WHERE pd.asesor_id = '$request->asesor_id'
-        // AND pd.periodo_id  = '$request->periodo_id'
-        // AND pd.estado = '0'
-        // LIMIT 1
-        // ");
-        // if(count($query2)) {
-        //     $getIdDevolucion = $query2[0]->id;
-        // }
-        // $datos = [];
-        // foreach($query as $key => $item){
-        //     //traer la cantidad de devolucion si ya ha devuelto algo y quiere editar
-        //     $cantidadD = 0;
-        //     $query3 = DB::SELECT("SELECT * FROM pedidos_guias_devolucion_detalle gd
-        //     WHERE gd.pro_codigo = '$item->pro_codigo'
-        //     AND gd.pedidos_guias_devolucion_id = '$getIdDevolucion'
-        //     LIMIT 1
-        //     ");
-        //     if(count($query3) >0){
-        //         $cantidadD = $query3[0]->cantidad_devuelta;
-        //     }
-        //     //stock de bodega
-        //     $datos[$key] = [
-        //         "id"            => $item->id,
-        //         "asesor_id"     => $item->asesor_id,
-        //         "pro_codigo"    => $item->pro_codigo,
-        //         "pro_stock"     => $item->pro_stock,
-        //         "created_at"    => $item->created_at,
-        //         "nombrelibro"   => $item->nombrelibro,
-        //         "formato"       => $cantidadD,
-        //     ];
-        // }
-        // return $datos;
     }
     //api para mostrar las entregas de guias a instituciones
     public function getEntregasGuias(Request $request){
@@ -5021,6 +5053,7 @@ class PedidosController extends Controller
           FROM pedidos_beneficiarios b
           LEFT JOIN usuario u ON b.id_usuario = u.idusuario
           WHERE b.id_pedido = '$request->id_pedido'
+          AND b.estado = '1'
         ");
         //traer el codigo de periodo
         $getPeriodo = Periodo::findOrFail($request->periodo_id);
@@ -5108,7 +5141,9 @@ class PedidosController extends Controller
                 u.cedula
                 FROM pedidos_beneficiarios b
                 LEFT JOIN usuario u ON b.id_usuario = u.idusuario
-                WHERE b.id_pedido = '$id_pedido'");
+                WHERE b.id_pedido = '$id_pedido'
+                AND b.estado = '1'
+                ");
                 if(count($query3) > 0){
                     $id_temporada                       = $query2[0]->id_temporada;
                     $temporada                          = Temporada::findOrFail($id_temporada);
@@ -5724,179 +5759,6 @@ class PedidosController extends Controller
             return ["status" => "0", "message" => "No se pudo enviar"];
         }
     }
-    // public function AnularLibrosObsequios(Request $request) {
-    //     // Iniciar transacción
-    //     DB::beginTransaction();
-
-    //     try {
-    //         // Encontrar el pedido de libro obsequio
-    //         $pedidoLibroObsequio = PedidosLibroObsequio::findOrFail($request->id);
-
-    //         // Actualizar el estado del pedido de libro obsequio
-    //         $pedidoLibroObsequio->estado_libros_obsequios = $request->estado_libros_obsequios;
-    //         $pedidoLibroObsequio->save();
-
-    //         // Buscar todas las ventas asociadas en la tabla F_venta
-    //         $ventas = DB::table('f_venta')
-    //                     ->where('ven_p_libros_obsequios', $request->id)
-    //                     ->get();
-
-    //         if ($ventas->isEmpty()) {
-    //             throw new \Exception('No se encontraron ventas asociadas');
-    //         }
-
-    //         // Iterar sobre todas las ventas encontradas
-    //         foreach ($ventas as $venta) {
-    //             // Actualizar el estado de la venta
-    //             DB::table('f_venta')
-    //                 ->where('ven_codigo', $venta->ven_codigo)
-    //                 ->where('id_empresa', $venta->id_empresa)
-    //                 ->update(['est_ven_codigo' => 3]);
-
-    //             // Obtener detalles de la venta
-    //             $detalles = DB::table('f_detalle_venta')
-    //                           ->where('ven_codigo', $venta->ven_codigo)
-    //                           ->where('id_empresa', $venta->id_empresa)
-    //                           ->get();
-
-    //             // Iterar sobre los detalles y actualizar los productos
-    //             foreach ($detalles as $detalle) {
-    //                 $producto = DB::table('1_4_cal_producto')
-    //                               ->where('pro_codigo', $detalle->pro_codigo)
-    //                               ->first();
-
-    //                 if (!$producto) {
-    //                     // Deshacer la transacción en caso de error con un producto
-    //                     DB::rollBack();
-    //                     return ["status" => "0", "message" => "Producto no encontrado"];
-    //                 }
-
-    //                 // Ajustar el stock según la empresa
-    //                 if ($venta->id_empresa == 1) {
-    //                     DB::table('1_4_cal_producto')
-    //                         ->where('pro_codigo', $detalle->pro_codigo)
-    //                         ->update([
-    //                             'pro_deposito' => $producto->pro_deposito + (int)$detalle->det_ven_cantidad,
-    //                             'pro_reservar' => $producto->pro_reservar + (int)$detalle->det_ven_cantidad
-    //                         ]);
-    //                 } else if ($venta->id_empresa == 3) {
-    //                     DB::table('1_4_cal_producto')
-    //                         ->where('pro_codigo', $detalle->pro_codigo)
-    //                         ->update([
-    //                             'pro_depositoCalmed' => $producto->pro_depositoCalmed + (int)$detalle->det_ven_cantidad,
-    //                             'pro_reservar' => $producto->pro_reservar + (int)$detalle->det_ven_cantidad
-    //                         ]);
-    //                 }
-    //             }
-    //         }
-
-    //         // Confirmar la transacción
-    //         DB::commit();
-
-    //         return ["status" => "1", "message" => "Se anuló correctamente"];
-    //     } catch (\Exception $e) {
-    //         // Deshacer la transacción en caso de error
-    //         DB::rollBack();
-
-    //         // Opcional: Loguear el error
-    //         // Log::error('Error al anular libros obsequios: ' . $e->getMessage());
-
-    //         return ["status" => "0", "message" => "No se pudo anular"];
-    //     }
-    // }
-    // public function AnularLibrosObsequios(Request $request) {
-    //     // Iniciar transacción
-    //     DB::beginTransaction();
-
-    //     try {
-    //         // Encontrar el pedido de libro obsequio
-    //         $pedidoLibroObsequio = PedidosLibroObsequio::findOrFail($request->id);
-
-    //         // Actualizar el estado del pedido de libro obsequio
-    //         $pedidoLibroObsequio->estado_libros_obsequios = $request->estado_libros_obsequios;
-    //         $pedidoLibroObsequio->save();
-
-    //         // Buscar todas las ventas asociadas en la tabla F_venta
-    //         $ventas = DB::table('f_venta')
-    //                     ->where('ven_p_libros_obsequios', $request->id)
-    //                     ->get();
-
-    //         // Validar que se encontraron ventas
-    //         if ($ventas->isEmpty()) {
-    //             throw new \Exception('No se encontraron ventas asociadas');
-    //         }
-
-    //         // Iterar sobre todas las ventas encontradas
-    //         foreach ($ventas as $venta) {
-    //             // Validar que el estado de la venta sea 2 o diferente de 3
-    //             if ($venta->est_ven_codigo != 2 && $venta->est_ven_codigo != 3) {
-    //                 // Deshacer la transacción si encontramos un estado incorrecto
-    //                 DB::rollBack();
-    //                 return ["status" => "0", "message" => "El documento " . $venta->ven_codigo . " ya no se encuentra pendiente de despacho. No se puede anular."];
-    //             }
-
-    //             // Actualizar el estado de la venta
-    //             DB::table('f_venta')
-    //                 ->where('ven_codigo', $venta->ven_codigo)
-    //                 ->where('id_empresa', $venta->id_empresa)
-    //                 ->update([
-    //                     'est_ven_codigo' => 3,
-    //                     'user_anulado' => $request->usuario,
-    //                     'observacionAnulacion' => $request->observacion,
-    //                     'fecha_anulacion' => now()]
-    //                 );
-
-    //             // Obtener detalles de la venta
-    //             $detalles = DB::table('f_detalle_venta')
-    //                           ->where('ven_codigo', $venta->ven_codigo)
-    //                           ->where('id_empresa', $venta->id_empresa)
-    //                           ->get();
-
-    //             // Iterar sobre los detalles y actualizar los productos
-    //             foreach ($detalles as $detalle) {
-    //                 $producto = DB::table('1_4_cal_producto')
-    //                               ->where('pro_codigo', $detalle->pro_codigo)
-    //                               ->first();
-
-    //                 if (!$producto) {
-    //                     // Deshacer la transacción en caso de error con un producto
-    //                     DB::rollBack();
-    //                     return ["status" => "0", "message" => "Producto no encontrado"];
-    //                 }
-
-    //                 // Ajustar el stock según la empresa
-    //                 if ($venta->id_empresa == 1) {
-    //                     DB::table('1_4_cal_producto')
-    //                         ->where('pro_codigo', $detalle->pro_codigo)
-    //                         ->update([
-    //                             'pro_deposito' => $producto->pro_deposito + (int)$detalle->det_ven_cantidad,
-    //                             'pro_reservar' => $producto->pro_reservar + (int)$detalle->det_ven_cantidad
-    //                         ]);
-    //                 } else if ($venta->id_empresa == 3) {
-    //                     DB::table('1_4_cal_producto')
-    //                         ->where('pro_codigo', $detalle->pro_codigo)
-    //                         ->update([
-    //                             'pro_depositoCalmed' => $producto->pro_depositoCalmed + (int)$detalle->det_ven_cantidad,
-    //                             'pro_reservar' => $producto->pro_reservar + (int)$detalle->det_ven_cantidad
-    //                         ]);
-    //                 }
-    //             }
-    //         }
-
-    //         // Confirmar la transacción
-    //         DB::commit();
-
-    //         return ["status" => "1", "message" => "Se anuló correctamente"];
-    //     } catch (\Exception $e) {
-    //         // Deshacer la transacción en caso de error
-    //         DB::rollBack();
-
-    //         // Opcional: Loguear el error
-    //         // Log::error('Error al anular libros obsequios: ' . $e->getMessage());
-
-    //         return ["status" => "0", "message" => "No se pudo anular"];
-    //     }
-    // }
 
     public function AnularLibrosObsequios(Request $request)
     {
@@ -7463,7 +7325,8 @@ class PedidosController extends Controller
         //actualizar beneficiarios
         DB::table('pedidos_beneficiarios')
         ->where('id_pedido', $pedidoAnterior)
-        ->update(['id_pedido' => $pedidoNuevo]);
+        ->where('estado', '0')
+        ->update(['id_pedido' => $pedidoNuevo, 'estado' => '1']);
         //actualizar libros
         DB::table('pedidos_val_area_new')
         ->where('id_pedido', $pedidoAnterior)
@@ -7794,7 +7657,7 @@ class PedidosController extends Controller
 
             $codigo_ven = $this->guiaRepository->generarCodigoActa($request, $secuenciaData);
             // Actualizar stock
-            $resultado = $this->guiaRepository->actualizarStockFacturacion($guias_send, $codigo_ven, $request->empresa_id,0,$request->id_pedido);
+            $resultado = $this->guiaRepository->actualizarStockFacturacion($guias_send, $codigo_ven, $request->empresa_id,0,$request->id_pedido,$request->usuario_fact);
             if (isset($resultado["status"]) && $resultado["status"] == "0") {
                 throw new \Exception($resultado["message"]);
             }
@@ -8041,7 +7904,7 @@ class PedidosController extends Controller
         }
 
         // Consultar pedidos_beneficiarios
-        $beneficiarios = DB::SELECT("SELECT * FROM pedidos_beneficiarios pb WHERE pb.id_pedido = ?", [$id_pedido]);
+        $beneficiarios = DB::SELECT("SELECT * FROM pedidos_beneficiarios pb WHERE pb.id_pedido = ? AND pb.estado = '1'", [$id_pedido]);
         if (!empty($beneficiarios)) {
             $mensajebeneficiarios = "Sí contiene";
         }else{
@@ -8146,6 +8009,7 @@ class PedidosController extends Controller
             // Eliminar registros de pedidos_beneficiarios
             $deleted_pedidos_beneficiarios = DB::table('pedidos_beneficiarios')
                 ->where('id_pedido', $request->id_pedido)
+                ->where('estado', '1')
                 ->delete();
 
             if ($deleted_pedidos_beneficiarios === 0) {
@@ -8528,10 +8392,50 @@ class PedidosController extends Controller
             ]
         ]);
     }
+
+    //api:get/metodosGetPedidos
+    public function metodosGetPedidos(Request $request){
+        if($request->getComisionAnteriores){
+            return $this->getComisionAnteriores($request);
+        }
+    }
+
+    //api:get/metodosGetPedidos?getComisionAnteriores=1&id_institucion=539&id_pedido=837
+    public function getComisionAnteriores(Request $request){
+        $id_pedido       = $request->id_pedido;
+        $id_institucion  = $request->id_institucion;
+        // validar
+        if(!$id_pedido || !$id_institucion){
+            return response()->json([
+                'status' => 0,
+                'message' => 'Faltan parametros obligatorios: id_pedido o id_institucion',
+            ]);
+        }
+        // validar que el pedido exista
+        $pedidoExist = Pedidos::find($id_pedido);
+        if(!$pedidoExist){
+            return response()->json([
+                'status' => 0,
+                'message' => 'No se encontro el pedido con id_pedido: '.$id_pedido,
+            ]);
+        }
+        // consulta
+        $query = DB::SELECT("SELECT *
+            FROM pedidos p
+            WHERE p.id_institucion = '$id_institucion'
+            AND p.estado = '1'
+            AND p.id_pedido < '$id_pedido'
+            ORDER BY p.id_pedido DESC
+            LIMIT 1;
+        ");
+        return $query;
+    }
+
     //api:post/metodosPostPedidos
     public function metodosPostPedidos(Request $request){
-        if($request->guardarTabAnticipo == 1){ return $this->guardarTabAnticipo($request); }
-        if($request->changeEstadoPedidoEtiqueta == 1){ return $this->changeEstadoPedidoEtiqueta($request); }
+        if($request->guardarTabAnticipo == 1)           { return $this->guardarTabAnticipo($request); }
+        if($request->changeEstadoPedidoEtiqueta == 1)   { return $this->changeEstadoPedidoEtiqueta($request); }
+        if($request->marcarComoVerificado == 1)         { return $this->marcarComoVerificado($request); }
     }
     //api:post/metodosPostPedidos?guardarTabAnticipo=1
     public function guardarTabAnticipo(Request $request){
@@ -8582,6 +8486,30 @@ class PedidosController extends Controller
             ]);
         }
     }
+    //api:post/metodosPostPedidos?marcarComoVerificado=1
+    public function marcarComoVerificado(Request $request){
+        $id_beneficiario    = $request->id_beneficiario;
+        $verificado         = $request->verificado;
+        $fecha_verificacion = date('Y-m-d H:i:s');
+        $user_verificado    = $request->user_verificado;
+        $beneficiario                       = Beneficiarios::findOrFail($id_beneficiario);
+        $beneficiario->verificado           = $verificado;
+        $beneficiario->fecha_verificacion   = $fecha_verificacion;
+        $beneficiario->user_verificado      = $user_verificado;
+        $beneficiario->save();
+        if($beneficiario){
+            return response()->json([
+                'status' => 1,
+                'message' => 'Se marco correctamente el beneficiario como verificado: ',
+                'beneficiario' => $beneficiario
+            ]);
+        }else{
+            return response()->json([
+                'status' => 0,
+            ]);
+        }
+    }
+
     public function change_asesor_en_pedido(Request $request){
          // Buscar el pedido usando Eloquent (findOrFail lanza una excepción si no se encuentra)
             $pedido = Pedidos::findOrFail($request->id_pedido);

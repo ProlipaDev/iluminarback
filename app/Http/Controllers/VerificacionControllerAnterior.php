@@ -462,7 +462,9 @@ class VerificacionControllerAnterior extends Controller
                 c.porcentaje_personalizado_regalado,
                 c.codigo_proforma,
                 c.proforma_empresa,
-
+                c.codigo_paquete,
+                c.combo,
+                c.codigo_combo,
                 (
                     SELECT
                         CASE
@@ -505,6 +507,7 @@ class VerificacionControllerAnterior extends Controller
              ->where('libro_idlibro', $request->libro_id)
              ->where('estado_liquidacion', '<>', '3')
              ->where('plus', $plus)
+             ->whereNull('combo')
              ->get();
              return $codigos;
 
@@ -626,8 +629,11 @@ class VerificacionControllerAnterior extends Controller
                     'cantidad_items'            => $item->cantidad_items?? null,
                     'cantidad_subitems'         => $item->cantidad_subitems?? null,
                     'verificacion'              => $item->verificacion?? null,
+                    'idtipodocumento'           => $item->idtipodocumento?? null,
                     'descuento'                 => $item->descuento?? null,
                     'porcentaje_personalizado_regalado' => $item->porcentaje_personalizado_regalado?? null,
+                    'codigo_proforma'           => $item->codigo_proforma?? null,
+                    'proforma_empresa'          => $item->proforma_empresa?? null,
                 ];
                 $contador++;
             }
@@ -2759,6 +2765,8 @@ class VerificacionControllerAnterior extends Controller
                     'descuento'                 => $item->descuento?? null,
                     'porcentaje_personalizado_regalado' => $item->porcentaje_personalizado_regalado?? null,
                     'idtipodoc'                 => $item->idtipodoc?? null,
+                    'codigo_proforma'           => $item->codigo_proforma?? null,
+                    'proforma_empresa'          => $item->proforma_empresa?? null,
                 ];
                 $contador++;
             }

@@ -737,8 +737,19 @@ class UsuarioController extends Controller
             'change_password' => 1,
             'fecha_change_password' => null
         ]);
+    }
 
+      public function restaurarPasswordXIdUser(Request $request){
 
+        $encontrarEmail = Usuario::where('idusuario','=',$request->idusuario)->first();
+        $codigo = $encontrarEmail->cedula;
+        $res = DB::table('usuario')
+        ->where('idusuario',$request->idusuario)
+        ->update([
+            'password' => sha1(md5($codigo)),
+            'change_password' => 1,
+            'fecha_change_password' => null
+        ]);
     }
 
     //api para que el usuario pueda restaurar su contrasena

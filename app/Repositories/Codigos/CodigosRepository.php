@@ -443,15 +443,20 @@ class  CodigosRepository extends BaseRepository
                     if($ifsetProforma == 1){
                         $libro->devuelto_proforma = 1;
                     }
-                    $libro->save();
-
-                    // Validar si se actualizó correctamente
-                    if (!$libro->wasChanged()) {
-                        $estadoIngreso = 2;
-                        $message .= "No se pudo actualizar el registro con código: $codigo. ";
-                    } else {
+                    // Guardamos y validamos que todo salió bien
+                    if ($libro->save()) {
                         $message .= "Registro actualizado con éxito: $codigo. ";
+                    } else {
+                        $estadoIngreso = 2;
+                        $message .= "ERROR: No se pudo guardar el registro con código: $codigo. ";
                     }
+                    // Validar si se actualizó correctamente
+                    // if (!$libro->wasChanged()) {
+                    //     $estadoIngreso = 2;
+                    //     $message .= "No se pudo actualizar el registro con código: $codigo. ";
+                    // } else {
+                    //     $message .= "Registro actualizado con éxito: $codigo. ";
+                    // }
                 } else {
                     $estadoIngreso = 2;
                     $message .= "El registro con código: $codigo no existe. ";
@@ -477,7 +482,7 @@ class  CodigosRepository extends BaseRepository
     }
 
 
-    public function updateDevolucion($codigo, $codigo_union)
+    public function updateDevolucion($codigo, $codigo_union,$codigo_liquidacion)
     {
         try {
             // Verificar si el código principal existe
@@ -490,6 +495,24 @@ class  CodigosRepository extends BaseRepository
                 ];
             }
 
+            //=============================Actualizar el stock============================
+            // old values STOCK
+            $oldValues                  = $this->save_historicoStockOld($codigo_liquidacion);
+            $valorNew                   = 1;
+            //get stock
+            $getStock                   = _14Producto::obtenerProducto($codigo_liquidacion);
+            $stockAnteriorReserva       = $getStock->pro_reservar;
+             $empresaNuevo               = 3;
+            // tipoDocumento = 0; => prefactura; tipoDocumento = 1 => notas
+            $tipoDocumento              = 1;
+            $stockEmpresa               = $getStock->pro_depositoCalmed;
+            $nuevoStockReserva          = $stockAnteriorReserva + $valorNew;
+            $nuevoStockEmpresa          = $stockEmpresa + $valorNew;
+            //actualizar stock en la tabla de productos
+            _14Producto::updateStock($codigo_liquidacion,$empresaNuevo,$nuevoStockReserva,$nuevoStockEmpresa,$tipoDocumento);
+            // new values STOCK
+            $newValues                  = $this->save_historicoStockNew($codigo_liquidacion);
+            //=============================================================================
             // Actualizar el código principal
             DB::table('codigoslibros')
                 ->where('codigo', $codigo)
@@ -511,8 +534,10 @@ class  CodigosRepository extends BaseRepository
             }
 
             return [
-                "ingreso" => 1,
-                "messageIngreso" => "Devolución actualizada correctamente."
+                "ingreso"           => 1,
+                "messageIngreso"    => "Devolución actualizada correctamente.",
+                "oldValues"         => $oldValues,
+                "newValues"         => $newValues,
             ];
         } catch (\Exception $e) {
             return [
@@ -891,6 +916,7 @@ class  CodigosRepository extends BaseRepository
             $precio = $this->pedidosRepository->getPrecioXLibro($item->id_serie, $item->libro_idlibro, $item->area_idarea, $periodo, $item->year);
             $item->precio       = $precio;
             $item->valor        = $item->cantidad;
+            $item->cantidadDisponibleBodega = $item->cantidad;
             // Multiplicar el precio por la cantidad
             $item->precio_total = number_format($precio * $item->cantidad, 2, '.', '');
         }
@@ -1607,5 +1633,50 @@ class  CodigosRepository extends BaseRepository
             throw new \Exception("Error al guardar la devolución de códigos desarmados: " . $e->getMessage());
         }
     }
+    public function guiasXAsesorPeriodoNew($periodo, $asesor_id){
+       $query = DB::SELECT("SELECT
+                ls.codigo_liquidacion AS codigo,
+                l.nombrelibro,
+                SUM(pv.pvn_cantidad) AS valor
+            FROM pedidos_val_area_new pv
+            LEFT JOIN pedidos p ON p.id_pedido = pv.id_pedido
+            LEFT JOIN libro l ON l.idlibro = pv.idlibro
+            LEFT JOIN libros_series ls ON ls.idLibro = l.idlibro
+            WHERE p.estado = '1'
+                AND p.id_asesor = '$asesor_id'
+                AND p.tipo = '1'
+                AND p.id_periodo = '$periodo'
+                AND p.estado_entrega = '2'
+            GROUP BY ls.codigo_liquidacion, l.nombrelibro
+            ORDER BY l.nombrelibro
+        ");
 
+        foreach ($query as $q) {
+            $q->valor = (float) $q->valor;
+            $q->cantidadGuiasXPedidos = (int) $q->valor;
+        }
+        return $query;
+    }
+    public function guiasXAsesorPeriodoOld($periodo, $asesor_id){
+       $query = DB::SELECT("SELECT ls.codigo_liquidacion AS codigo, l.nombrelibro, sum(pv.valor) AS valor
+            FROM pedidos_val_area pv
+            LEFT JOIN pedidos p ON p.id_pedido = pv.id_pedido
+            LEFT JOIN libro l ON l.idlibro = pv.id_libro
+            LEFT JOIN libros_series ls ON ls.idLibro = l.idlibro
+            WHERE p.estado = '1'
+            AND p.id_asesor = '$asesor_id'
+            AND p.tipo = '1'
+            AND p.id_periodo = '$periodo'
+            AND p.estado_entrega = '2'
+            GROUP BY  ls.codigo_liquidacion, l.nombrelibro
+            ORDER BY l.nombrelibro
+            ;
+        ");
+
+        foreach ($query as $q) {
+            $q->valor = (float) $q->valor;
+            $q->cantidadGuiasXPedidos = (int) $q->valor;
+        }
+        return $query;
+    }
 }

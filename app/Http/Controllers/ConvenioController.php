@@ -68,13 +68,15 @@ class ConvenioController extends Controller
         $query = DB::SELECT("SELECT c.*, i.nombreInstitucion, p.periodoescolar as periodo, sg.cantidad_finalizada,
         i.id_convenio_autorizacion,
         CONCAT(uc.nombres,' ',uc.apellidos) as usuario_creador,
-        CONCAT(uf.nombres,' ',uf.apellidos) as usuario_cierre
+        CONCAT(uf.nombres,' ',uf.apellidos) as usuario_cierre,
+        CONCAT(usap.nombres,' ',usap.apellidos) as user_aprueba
         FROM pedidos_convenios c
         LEFT JOIN institucion i ON i.idInstitucion = c.institucion_id
         LEFT JOIN periodoescolar p ON p.idperiodoescolar = c.periodo_id
         LEFT JOIN pedidos_solicitudes_gerencia sg ON sg.id = c.id_solicitud_gerencia_convenio
         LEFT JOIN usuario uc ON c.usuario_creador = uc.idusuario
         LEFT JOIN usuario uf ON c.usuario_cierre = uf.idusuario
+        LEFT JOIN usuario usap ON c.usuario_aprueba = usap.idusuario
         WHERE c.institucion_id = ?
         AND (c.estado = '0' OR c.estado = '1' OR c.estado = '2')
         ORDER BY c.id DESC
@@ -202,6 +204,7 @@ class ConvenioController extends Controller
         }
         if($request->cerrarConvenio)            { return $this->cerrarConvenio($request); }
         if($request->aprobarConvenioCerrado)    { return $this->aprobarConvenioCerrado($request); }
+        if($request->editarConvenio)            { return $this->editarConvenio($request); }
     }
     public function saveGlobal($request){
         try{
@@ -435,7 +438,49 @@ class ConvenioController extends Controller
     public function aprobarConvenioCerrado($request){
        return $this->convenioRepository->aprobarConvenioCerrado($request->idConvenio,$request->user_created);
     }
-    public function saveHistorico($institucion_id,$id_pedido,$user_created,$cantidad,$contrato,$tipo,$old_values,$observacion){
+
+    //api:post/convenio?editarConvenio=1
+    public function editarConvenio($request){
+        $pedidoConvenio     = PedidoConvenio::findOrFail($request->idConvenio);
+        $old_values         = $pedidoConvenio;
+        $estadoConvenio     = $pedidoConvenio->estado;
+        $convenio_aprobado  = $pedidoConvenio->convenio_aprobado;
+        $institucion_id     = $pedidoConvenio->institucion_id;
+        $id_pedido          = $pedidoConvenio->id_pedido;
+        $user_created       = $request->user_created;
+        if($estadoConvenio != 1) {
+            return ["status" => "0", "message" => "Solo se puede editar un convenio que este activo"];
+        }
+        $datoUser = User::findOrFail($user_created);
+        $id_group = $datoUser->id_group;
+        //validar si es id_group 11 no puede editar convenio en estado pendiente
+        if($id_group == 11 && $convenio_aprobado == 0){
+            return ["status" => "0", "message" => "No se puede editar un convenio en estado pendiente"];
+        }
+        //validar que el anio de convenios no puede ser menor a la cantidad de pedidos
+        $cantidadPedidosConvenio = Pedidos::where('pedidos_convenios_id',$request->idConvenio)->where('estado','1')->count();
+        if($request->convenio_anios < $cantidadPedidosConvenio){
+            return ["status" => "0", "message" => "El número de años del convenio no puede ser menor a la cantidad de pedidos asociados al mismo."];
+        }
+        //actualizar datos
+        $pedidoConvenio->observacion        = $request->observacion;
+        $pedidoConvenio->anticipo_global    = $request->anticipo_global;
+        $pedidoConvenio->convenio_anios     = $request->convenio_anios;
+
+        $pedidoConvenio->save();
+        $new_values         = PedidoConvenio::findOrFail($request->idConvenio);
+        //======actualizar los pedidos el convenio_anios por pedidos_convenios_id=====
+        Pedidos::where('pedidos_convenios_id',$request->idConvenio)->update(['convenio_anios' => $pedidoConvenio->convenio_anios]);
+        //save historico
+        $this->saveHistorico($institucion_id,$id_pedido,$user_created,0,null,0,$old_values,"Se actualizo el convenio",$new_values);
+        if($pedidoConvenio){
+            return ["status" => "1", "message" => "Se edito correctamente"];
+        }else{
+            return ["status" => "0", "message" => "No se puedo editar"];
+        }
+    }
+
+    public function saveHistorico($institucion_id,$id_pedido,$user_created,$cantidad,$contrato,$tipo,$old_values,$observacion, $new_values = null){
         $historico = new PedidoConvenioHistorico();
         $historico->institucion_id  = $institucion_id;
         $historico->id_pedido       = $id_pedido;
@@ -443,6 +488,9 @@ class ConvenioController extends Controller
         $historico->cantidad        = $cantidad;
         $historico->contrato        = $contrato;
         $historico->tipo            = $tipo;
+        if($new_values != null){
+            $historico->new_values      = $new_values;
+        }
         if(isset($old_values->created_at)){
             $historico->old_values      = $old_values;
         }else{

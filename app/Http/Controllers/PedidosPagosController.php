@@ -287,49 +287,7 @@ class PedidosPagosController extends Controller
         //actualizar verificaciones con los cobros de venta directa ingresados
         $this->pagoRepository->updateVentaDirecta($contrato);
     }
-    //guardar total comision
-    // public function setTotalComision($contrato,$id_pedido,$institucion,$periodo){
-    //     $query = DB::SELECT("SELECT
-    //     u.nombres, u.apellidos,u.cedula,
-    //     b.* FROM pedidos_beneficiarios b
-    //     LEFT JOIN usuario u ON b.id_usuario = u.idusuario
-    //     WHERE b.id_pedido = ?
-    //     AND b.comision_real > 0
-    //     ",[$id_pedido]);
-    //     if(count($query) == 0) { return; }
-    //     foreach($query as $key => $item){
-    //         $getBeneficiarioPago = PedidosDocumentosLiq::Where('beneficiario_id',$item->id_beneficiario_pedido)->get();
-    //         //si ya existe un registro de comision edito el valor
-    //         if(count($getBeneficiarioPago) > 0){
-    //             //si esta aprobado ya no edito
-    //             if($getBeneficiarioPago[0]->estado == 1) { return; }
-    //             // return $getBeneficiarioPago;
-    //             $hijoConvenio = PedidosDocumentosLiq::findOrFail($getBeneficiarioPago[0]->doc_codigo);
-    //         }
-    //         //si no existe un registro de comision lo creo
-    //         else{
-    //             $hijoConvenio                           = new PedidosDocumentosLiq();
-    //             $hijoConvenio->doc_observacion          = "Total Comisión de venta " . $item->porcentaje_real . "%";
-    //             $hijoConvenio->doc_nombre               = $item->nombres;
-    //             $hijoConvenio->doc_apellidos            = $item->apellidos;
-    //             $hijoConvenio->doc_cuenta               = $item->num_cuenta;
-    //             $hijoConvenio->doc_institucion          = $item->banco;
-    //             $hijoConvenio->doc_tipo                 = $item->tipo_cuenta;
-    //             $hijoConvenio->periodo_id               = $periodo;
-    //             $hijoConvenio->institucion_id           = $institucion;
-    //             $hijoConvenio->tipo_pago_id             = 1;
-    //             $hijoConvenio->forma_pago_id            = 1;
-    //             $hijoConvenio->beneficiario_id          = $item->id_beneficiario_pedido;
-    //             $hijoConvenio->id_pedido                = $id_pedido;
-    //             $hijoConvenio->doc_ruc                  = $item->cedula;
-    //         }
-    //         $hijoConvenio->doc_fecha                    = date("Y-m-d H:i:s");
-    //         $hijoConvenio->ven_codigo                   = $contrato;
-    //         $hijoConvenio->doc_valor                    = $item->comision_real;
-    //         $hijoConvenio->doc_ruc                  = $item->cedula;
-    //         $hijoConvenio->save();
-    //     }
-    // }
+
     /**
      * Show the form for creating a new resource.
      *

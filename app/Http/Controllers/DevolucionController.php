@@ -786,8 +786,8 @@ class DevolucionController extends Controller
                 if($getDisponibilidadDocumento){
                     $getidtipodoc = $getDisponibilidadDocumento->idtipodoc;
                     //si es 1 no hacer nada porque es pre factura
-                    if($getidtipodoc == 1 || $getidtipodoc == 2)   { $ifBusquedaDocumento  = 0; }
-                    else                                           { $ifBusquedaDocumento  = 1; }
+                    // if($getidtipodoc == 1 || $getidtipodoc == 2)   { $ifBusquedaDocumento  = 0; }
+                    // else                                           { $ifBusquedaDocumento  = 1; }
                 }
                 // si hay disponibilidad en la pre factura
                 if($getDisponibilidadDocumento && $ifBusquedaDocumento == 0) {
@@ -801,11 +801,33 @@ class DevolucionController extends Controller
                 }
                 // Si no hay disponibilidad asignar un documento o si es una nota buscar una pre factura
                 if(!$getDisponibilidadDocumento || $ifBusquedaDocumento == 1){
-                    $mensajeError                            = 'No se pudo obtener la disponibilidad del combo '.$combo .' con documento '.$documento;
-                    $itemError['mensajeError']               = $mensajeError;
-                    $itemError['combo']                      = $combo;
-                    $arrayCombosNoDisponibles[]              = $itemError;
-                    continue;
+                    // validar si el documento no existe
+                    $validateDocumento = DB::SELECT("SELECT * FROM f_venta
+                        WHERE ven_codigo = '$documento'
+                        AND id_empresa = '$id_empresa'
+                    ");
+                    //HIJOS SEPARAR POR COMAS EL LA PROPIEDAD codigo_combo
+                    $hijosMostrar = [];
+                    foreach($arrayHijosDevolver as $hijo){
+                        $hijosMostrar[] = $hijo['codigo_combo'];
+                    }
+                    $hijosMostrarString = implode(', ', $hijosMostrar);
+                     $empresa_nombre = $id_empresa == 1 ? 'Prolipa' : 'Calmed';
+                    if(count($validateDocumento) > 0){
+                        $mensajeError                            = 'El documento '.$documento .' ya no tiene disponibilidad para el combo '.$combo . ' empresa '.$empresa_nombre . '. etiquetas: ' . $hijosMostrarString;
+                        $itemError['mensajeError']               = $mensajeError;
+                        $itemError['combo']                      = $combo;
+                        $arrayCombosNoDisponibles[]              = $itemError;
+                        continue;
+                    }else{
+                        $mensajeError                            = 'El documento '.$documento .' no existe para el combo '.$combo . ' empresa '.$empresa_nombre . '. etiquetas: ' . $hijosMostrarString;
+                        $itemError['mensajeError']               = $mensajeError;
+                        $itemError['combo']                      = $combo;
+                        $arrayCombosNoDisponibles[]              = $itemError;
+                        continue;
+                    }
+
+
 
                     // Intentar obtener la prefactura DESCOMENTAR PARA DEVOLVER EN OTROS DOCUMENTOS COMO NOTAS
                     // $getPrefactura = $this->devolucionRepository->getFacturaAvailableCombo($datos, $cantidadCombosXDevolver, [1]);
@@ -1113,6 +1135,8 @@ class DevolucionController extends Controller
         if($request->returnToReview)            { return $this->returnToReview($request); }
         if($request->CambioClienteDevolucion)   { return $this->CambioClienteDevolucion($request); }
         if($request->finalizarDevolucionSueltos) { return $this->finalizarDevolucionSueltos($request); }
+        if($request->regresarEstadoDevuelto) { return $this->regresarEstadoDevuelto($request); }
+        if($request->actualizarPreciosEspeciales) { return $this->actualizarPreciosEspeciales($request); }
         if($request->anulacionDevolucionSueltos) { return $this->anulacionDevolucionSueltos($request); }
         if($request->eliminarDevolucionSueltos)  { return $this->eliminarDevolucionSueltos($request); }
         if($request->quitarCodigoDocumentoDevolucion) { return $this->quitarCodigoDocumentoDevolucion($request); }
@@ -2871,6 +2895,7 @@ class DevolucionController extends Controller
             $devolucion->codigos = DB::table('codigoslibros_devolucion_desarmados_son as s')
                 ->leftJoin('libro as l', 'l.idlibro', '=', 's.libro_id')
                 ->leftJoin('libros_series as ls', 'ls.idLibro', '=', 'l.idlibro')
+                ->leftjoin('1_4_cal_producto as pr','pr.pro_codigo','=','s.combo')
                 ->leftJoin('f_venta as v', function ($join) {
                     $join->on('s.documento', '=', 'v.ven_codigo')
                         ->on('s.id_empresa', '=', 'v.id_empresa');
@@ -2880,6 +2905,7 @@ class DevolucionController extends Controller
                     'l.nombrelibro',
                     'ls.codigo_liquidacion',
                     's.id_empresa',
+                    's.precio_especial',
                     DB::raw("
                         CASE
                             WHEN s.estado_liquidacion = 2 THEN 100
@@ -2892,7 +2918,13 @@ class DevolucionController extends Controller
                             WHEN s.id_empresa = 3 THEN 'Grupo Calmed'
                             ELSE 'Sin empresa'
                         END AS nombre_empresa
-                    ")
+                    "),
+                    // unir pro_nombre con combo
+                    DB::raw("
+                        CONCAT(pr.pro_nombre, ' - ', s.combo) AS combo_nombre
+                    ") ,
+                    'pr.pro_nombre',
+                    'pr.pro_descripcion'
                 )
                 ->where('s.codigoslibros_devolucion_desarmados_header_id', $devolucion->id)
                 ->get();
@@ -2934,6 +2966,95 @@ class DevolucionController extends Controller
             })->values()->all();
 
         return $query;
+    }
+
+    //api:post/devoluciones/regresarEstadoDevuelto
+    public function regresarEstadoDevuelto($request)
+    {
+        try {
+            DB::beginTransaction();
+
+            $id_devolucion = $request->input('id_devolucion');
+            $id_usuario = $request->input('id_usuario');
+
+            if (!$id_devolucion) {
+                return response()->json(['status' => '0', 'message' => 'El id_devolucion es requerido.'], 200);
+            }
+
+            // Buscar el documento
+            $documento = CodigosLibrosDevolucionDesarmadoHeader::find($id_devolucion);
+            if (!$documento) {
+                return response()->json(['status' => '0', 'message' => 'Documento no encontrado.'], 200);
+            }
+
+            // Verificar que esté en estado finalizado (2) para poder regresarlo a devuelto (1)
+            if ($documento->estado != 2) {
+                return response()->json(['status' => '0', 'message' => 'Solo se pueden regresar documentos finalizados.'], 200);
+            }
+
+            // Actualizar el estado a devuelto (1)
+            $documento->estado = 1;
+            // $documento->user_devuelve = $id_usuario;
+            $documento->fecha_devuelve = now();
+            $documento->user_finaliza = null;
+            $documento->fecha_finaliza = null;
+            $documento->save();
+
+            DB::commit();
+
+            return response()->json(['status' => '1', 'message' => 'Documento regresado a estado devuelto correctamente.'], 200);
+
+        } catch (\Exception $e) {
+            DB::rollback();
+            return response()->json(['status' => '0', 'message' => 'Error al regresar el documento: ' . $e->getMessage()], 200);
+        }
+    }
+
+    //api:post/devoluciones/actualizarPreciosEspeciales
+    public function actualizarPreciosEspeciales($request)
+    {
+        try {
+            DB::beginTransaction();
+
+            $id_devolucion = $request->input('id_devolucion');
+            $datos_actualizar = json_decode($request->input('datos_actualizar'), true);
+            $id_usuario = $request->input('id_usuario');
+
+            if (!$id_devolucion) {
+                return response()->json(['status' => '0', 'message' => 'El id_devolucion es requerido.'], 200);
+            }
+
+            if (!$datos_actualizar || !is_array($datos_actualizar)) {
+                return response()->json(['status' => '0', 'message' => 'Los datos a actualizar son requeridos.'], 200);
+            }
+
+            // Verificar que el documento existe y está en estado devuelto
+            $documento = CodigosLibrosDevolucionDesarmadoHeader::find($id_devolucion);
+            if (!$documento) {
+                return response()->json(['status' => '0', 'message' => 'Documento no encontrado.'], 200);
+            }
+
+            if ($documento->estado != 1) {
+                return response()->json(['status' => '0', 'message' => 'Solo se pueden editar documentos en estado devuelto.'], 200);
+            }
+
+            // Actualizar los precios especiales
+            foreach ($datos_actualizar as $dato) {
+                if (isset($dato['id']) && isset($dato['precio_especial'])) {
+                    CodigosLibrosDevolucionDesarmadoSon::where('id', $dato['id'])
+                        ->where('codigoslibros_devolucion_desarmados_header_id', $id_devolucion)
+                        ->update(['precio_especial' => $dato['precio_especial']]);
+                }
+            }
+
+            DB::commit();
+
+            return response()->json(['status' => '1', 'message' => 'Precios especiales actualizados correctamente.'], 200);
+
+        } catch (\Exception $e) {
+            DB::rollback();
+            return response()->json(['status' => '0', 'message' => 'Error al actualizar precios: ' . $e->getMessage()], 200);
+        }
     }
 }
 

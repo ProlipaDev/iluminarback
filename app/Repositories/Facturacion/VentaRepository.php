@@ -276,14 +276,17 @@ class  VentaRepository extends BaseRepository
             LEFT JOIN libros_series ls ON ls.idLibro = c.libro_idlibro
             LEFT JOIN libro l ON l.idlibro = ls.idLibro
             LEFT JOIN series s ON s.id_serie = ls.id_serie
-            LEFT JOIN pedidos_formato_new fp ON fp.idlibro = l.idlibro
+             LEFT JOIN pedidos_formato_new fp
+			    ON fp.idlibro = c.libro_idlibro
+			   AND fp.idperiodoescolar = '$periodo'
             LEFT JOIN institucion iv ON iv.idInstitucion = c.bc_institucion
             WHERE
                 c.prueba_diagnostica = '0'
                 AND c.estado_liquidacion IN ('0', '1', '2')
                 AND c.bc_periodo = ?
                 AND (c.venta_estado = '1' OR c.venta_estado = '0')
-                AND c.combo IS NULL
+                 AND (c.combo IS NULL OR  c.codigo_combo IS null)
+                AND c.codigo_proforma IS NOT NULL
                 -- AND c.codigo_combo IS NULL
                 $condicion
             GROUP BY ls.codigo_liquidacion, l.nombrelibro
@@ -314,14 +317,17 @@ class  VentaRepository extends BaseRepository
             LEFT JOIN libros_series ls ON ls.idLibro = c.libro_idlibro
             LEFT JOIN libro l ON l.idlibro = ls.idLibro
             LEFT JOIN series s ON s.id_serie = ls.id_serie
-            LEFT JOIN pedidos_formato_new fp ON fp.idlibro = l.idlibro
+             LEFT JOIN pedidos_formato_new fp
+			    ON fp.idlibro = c.libro_idlibro
+			   AND fp.idperiodoescolar = '$periodo'
             LEFT JOIN institucion il ON il.idInstitucion = c.venta_lista_institucion
             WHERE
                 c.prueba_diagnostica = '0'
                 AND c.estado_liquidacion IN ('0', '1', '2')
                 AND c.bc_periodo = ?
                 AND c.venta_estado = '2'
-                AND c.combo IS NULL
+                AND (c.combo IS NULL OR  c.codigo_combo IS null)
+                AND c.codigo_proforma IS NOT NULL
                 -- AND c.codigo_combo IS NULL
                 $condicion
             GROUP BY ls.codigo_liquidacion, l.nombrelibro
@@ -347,7 +353,11 @@ class  VentaRepository extends BaseRepository
                 ls.codigo_liquidacion,
                 l.nombrelibro,
                 s.nombre_serie,
-                fp.pfn_pvp AS precio,
+                CASE
+                    WHEN c.estado_liquidacion = 2 THEN 0
+                    WHEN c.plus = 1 THEN 29.90
+                    ELSE fp.pfn_pvp
+                END AS precio,
                 COUNT(*) AS valor,
                 COUNT(*) AS cantidad_despachada,
                 (COUNT(*) * fp.pfn_pvp) AS despachoBodega
@@ -355,17 +365,19 @@ class  VentaRepository extends BaseRepository
             LEFT JOIN libros_series ls ON ls.idLibro = c.libro_idlibro
             LEFT JOIN libro l ON l.idlibro = ls.idLibro
             LEFT JOIN series s ON s.id_serie = ls.id_serie
-            LEFT JOIN pedidos_formato_new fp ON fp.idlibro = l.idlibro
+            LEFT JOIN pedidos_formato_new fp
+			    ON fp.idlibro = c.libro_idlibro
+			   AND fp.idperiodoescolar = '$periodo'
             LEFT JOIN institucion il ON il.idInstitucion = c.venta_lista_institucion
             LEFT JOIN institucion iv ON iv.idInstitucion = c.bc_institucion
             WHERE
                 c.prueba_diagnostica = '0'
                 AND c.estado_liquidacion IN ('0', '1', '2')
                 AND c.bc_periodo = ?
-                AND c.combo IS NULL
+                AND (c.combo IS NULL OR  c.codigo_combo IS null)
+                AND c.codigo_proforma IS NOT NULL
                 -- AND c.codigo_combo IS NULL
                 $condicion
-                AND fp.idperiodoescolar = '$periodo'
             GROUP BY ls.codigo_liquidacion, l.nombrelibro, s.nombre_serie
             ORDER BY ls.codigo_liquidacion
         ", [$periodo]);

@@ -203,34 +203,66 @@ class UnidadController extends Controller
         $dato->delete();
         return $dato;
     }
-    public function transferenciaUnidades(Request $request) {
-        // Validar los datos recibidos
-        $request->validate([
-            'libro_a_transferir' => 'required|integer',
-            'libro_recibir_transferencia' => 'required|integer',
-        ]);
+    public function transferenciaUnidades(Request $request)
+    {
+        DB::beginTransaction();
+        try {
+            // Validar los datos recibidos
+            $request->validate([
+                'libro_a_transferir' => 'required|integer',
+                'libro_recibir_transferencia' => 'required|integer',
+            ]);
 
-        // Eliminar unidades existentes asociadas al libro receptor
-        unidad::where('id_libro', $request->libro_recibir_transferencia)->delete();
+            // 🔍 Verificar si el libro receptor ya tiene unidades registradas
+            $existenUnidades = unidad::where('id_libro', $request->libro_recibir_transferencia)->exists();
+            if ($existenUnidades) {
+                DB::rollBack();
+                return response()->json([
+                    'status' => 0,
+                    'message' => 'El libro al que desea transferir las unidades ya tiene unidades registradas. Por razones de integridad de datos, no se puede realizar la transferencia automática.  Por favor, registre o actualice las unidades manualmente en este libro.'
+                ], 200);
+            }
 
-        // Buscar las unidades asociadas al libro que se va a transferir
-        $unidades = unidad::where('id_libro', $request->libro_a_transferir)->get();
+            // 🔄 Obtener unidades del libro que se va a transferir
+            $unidades = unidad::where('id_libro', $request->libro_a_transferir)->get();
 
-        // Recorrer las unidades y replicar la información en el libro receptor
-        foreach ($unidades as $unidad) {
-            $nuevaUnidad = new unidad();
-            $nuevaUnidad->id_libro = $request->libro_recibir_transferencia;
-            $nuevaUnidad->unidad = $unidad->unidad;
-            $nuevaUnidad->nombre_unidad = $unidad->nombre_unidad;
-            $nuevaUnidad->txt_nombre_unidad = $unidad->txt_nombre_unidad;
-            $nuevaUnidad->pag_inicio = $unidad->pag_inicio;
-            $nuevaUnidad->pag_fin = $unidad->pag_fin;
-            $nuevaUnidad->estado = $unidad->estado;
-            $nuevaUnidad->created_at = now(); // Establecer la fecha de creación
-            $nuevaUnidad->updated_at = now(); // Establecer la fecha de actualización
-            $nuevaUnidad->save(); // Guardar la nueva unidad
+            // Validar que existan unidades para transferir
+            if ($unidades->isEmpty()) {
+                DB::rollBack();
+                return response()->json([
+                    'status' => 0,
+                    'message' => 'El libro que va a transferir las unidades no tiene registros para transferir.'
+                ], 200);
+            }
+
+            // 📦 Recorrer las unidades y duplicarlas en el nuevo libro
+            foreach ($unidades as $unidad) {
+                $nuevaUnidad = new unidad();
+                $nuevaUnidad->id_libro = $request->libro_recibir_transferencia;
+                $nuevaUnidad->unidad = $unidad->unidad;
+                $nuevaUnidad->nombre_unidad = $unidad->nombre_unidad;
+                $nuevaUnidad->txt_nombre_unidad = $unidad->txt_nombre_unidad;
+                $nuevaUnidad->pag_inicio = $unidad->pag_inicio;
+                $nuevaUnidad->pag_fin = $unidad->pag_fin;
+                $nuevaUnidad->estado = $unidad->estado;
+                $nuevaUnidad->created_at = now();
+                $nuevaUnidad->updated_at = now();
+                $nuevaUnidad->save();
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'status' => 1,
+                'message' => 'Transferencia de unidades completada exitosamente.'
+            ], 200);
+
+        } catch (\Throwable $th) {
+            DB::rollBack();
+            return response()->json([
+                'status' => 0,
+                'message' => 'Ocurrió un error al realizar la transferencia: ' . $th->getMessage()
+            ], 500);
         }
-
-        return response()->json(['message' => 'Transferencia de unidades completada exitosamente.'], 200);
     }
 }

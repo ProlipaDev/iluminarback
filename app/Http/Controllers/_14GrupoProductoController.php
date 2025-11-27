@@ -19,7 +19,15 @@ class _14GrupoProductoController extends Controller
     }
     public function GetGrupoProducto_limitado(){
         $query = DB::SELECT("SELECT * FROM 1_4_grupo_productos
-        WHERE gru_pro_codigo = 1 OR gru_pro_codigo = 3 OR gru_pro_codigo = 6
+        -- WHERE gru_pro_codigo = 1 OR gru_pro_codigo = 3 OR gru_pro_codigo = 6
+        WHERE gru_pro_codigo = 1
+        ORDER BY gru_pro_codigo DESC");
+        return $query;
+    }
+    //api:get/GetGrupoProducto_limitadov3
+    public function GetGrupoProducto_limitadov3(){
+        $query = DB::SELECT("SELECT * FROM 1_4_grupo_productos
+        WHERE gru_pro_codigo = 1 OR gru_pro_codigo = 8 OR gru_pro_codigo = 9 OR gru_pro_codigo = 10 OR gru_pro_codigo = 11
         ORDER BY gru_pro_codigo DESC");
         return $query;
     }
