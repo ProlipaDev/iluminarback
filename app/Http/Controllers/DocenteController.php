@@ -8,6 +8,7 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use App\Http\Controllers\Controller;
 use App\Models\InstitucionFueraProlipa;
+use App\Models\Usuario;
 use DB;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx\Rels;
 
@@ -190,6 +191,15 @@ class DocenteController extends Controller
 
     public function save_agenda_docente(Request $request)
     {
+        $idusuario = $request->idusuario;
+        $userData  = Usuario::find($idusuario);
+        // return ["status" => "0","message" => "Debe seleccionar una opcion"];
+        if($userData->id_group == 11){
+             if($request->opciones == "undefined" || $request->opciones == null){
+                return ["status" => "0","message" => "Debe seleccionar una opcion"];
+            }
+        }
+
         if( $request->id != 0 ){
             $agenda = Agenda::find($request->id);
             if($request->finalizar){
