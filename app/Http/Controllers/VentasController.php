@@ -3591,8 +3591,7 @@ class VentasController extends Controller
 
     public function cambioDesfasANotaCredito(Request $request)
     {
-        // Recibimos los datos desde el frontend
-        $id_ins_depacho = $request->id_ins_depacho;
+        // Recibimos los datos desde el frontend (ahora por cliente, no por institución)
         $empresa = $request->id_empresa;
         $data_detalle = $request->data_detalle;
         $tipoVenta = $request->tipoVenta; // Tipo de venta: 1 o 2
@@ -3603,9 +3602,9 @@ class VentasController extends Controller
             $data_detalle = json_decode($data_detalle, true);
         }
 
-        // Validación básica de los datos
-        if (!$id_ins_depacho || empty($data_detalle)) {
-            return response()->json(['message' => 'items inválidos.']);
+        // Validación básica de los datos (ahora validamos cliente en lugar de institución)
+        if (!$request->ven_cliente || empty($data_detalle)) {
+            return response()->json(['message' => 'Cliente o items inválidos.']);
         }
 
         // Iniciar la transacción
@@ -3623,7 +3622,7 @@ class VentasController extends Controller
                 'ven_transporte' => $request->ven_transporte, // Transporte recibido
                 'ven_valor' => $request->ven_valor, // Valor total recibido
                 'ven_subtotal' => $request->ven_subtotal, // Subtotal recibido
-                'institucion_id' => $id_ins_depacho,
+                // Ya no se usa institucion_id porque ahora es por cliente
                 'periodo_id' => $request->periodo_id, // Periodo recibido
                 'ven_cliente' => $request->ven_cliente, // Cliente recibido
                 'clientesidPerseo' => $request->clientesidPerseo, // Cliente de Perseo recibido
@@ -3631,8 +3630,8 @@ class VentasController extends Controller
                 'user_created' => $request->user_created, // Usuario que crea
                 'tip_ven_codigo' => $tipoVenta, // Tipo de venta (1 o 2)
                 'ven_tipo_inst' => $tipoVenta == 1 ? 'V' : 'L', // Tipo de venta según el valor recibido
-                'est_ven_codigo' => 14, // Tipo de venta según el valor recibido
-                'idtipodoc' => 16,
+                'est_ven_codigo' => 14, // Estado: Pendiente de asociar SRI
+                'idtipodoc' => 16, // Tipo de documento: Nota de Crédito
                 'ruc_cliente' => $request->ruc_cliente, // RUC del cliente
                 'fecha_notaCredito' => $request->ven_fecha,
             ];
@@ -3676,12 +3675,12 @@ class VentasController extends Controller
             // Si todo ha ido bien, hacemos commit
             DB::commit();
 
-            return response()->json(['message' => 'Prefacturas convertidas a notas correctamente.', 'status' => '0']);
+            return response()->json(['message' => 'Nota de crédito creada correctamente.', 'status' => '0']);
 
         } catch (\Exception $e) {
             // Si ocurre un error, hacemos rollback
             DB::rollBack();
-            return response()->json(['message' => 'Hubo un error al procesar las prefacturas: ' . $e->getMessage(), 'status' => '1', 'line' => $e->getLine()]);
+            return response()->json(['message' => 'Hubo un error al crear la nota de crédito: ' . $e->getMessage(), 'status' => '1', 'line' => $e->getLine()]);
         }
     }
 

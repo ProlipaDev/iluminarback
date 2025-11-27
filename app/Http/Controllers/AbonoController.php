@@ -1732,6 +1732,7 @@ class AbonoController extends Controller
         ->where('fv.est_ven_codigo', '<>', 3) // Excluir ventas canceladas
         ->where('fv.ven_desc_por', '<', 100)
         ->select(
+            'fv.ven_codigo',
             'fv.id_empresa',
             'fv.ruc_cliente',
             'fv.institucion_id',
